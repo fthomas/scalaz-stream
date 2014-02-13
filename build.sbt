@@ -20,8 +20,11 @@ libraryDependencies ++= Seq(
   "org.scalaz" %% "scalaz-core" % "7.0.5",
   "org.scalaz" %% "scalaz-concurrent" % "7.0.5",
   "org.scalaz" %% "scalaz-scalacheck-binding" % "7.0.5" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.10.1" % "test"
+  "org.scalacheck" %% "scalacheck" % "1.10.1" % "test",
+  "com.github.axel22" %% "scalameter" % "0.4" % "test"
 )
+
+testFrameworks += new TestFramework("org.scalameter.ScalaMeterFramework")
 
 seq(bintraySettings:_*)
 
