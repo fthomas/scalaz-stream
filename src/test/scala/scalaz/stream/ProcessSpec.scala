@@ -2,6 +2,7 @@ package scalaz.stream
 
 import scalaz._
 import scalaz.syntax.equal._
+import scalaz.syntax.foldable._
 import scalaz.std.anyVal._
 import scalaz.std.list._
 import scalaz.std.list.listSyntax._
@@ -68,6 +69,16 @@ object ProcessSpec extends Properties("Process1") {
     ("drop" |: {
       (p.toList.drop(n) === p.drop(n).toList)
     }) &&
+    ("dropLast" |: {
+      p.dropLast.toList === p.toList.dropRight(1)
+    }) &&
+    ("dropLastIf" |: {
+      val pred = (_: Int) % 2 == 0
+      val pl = p.toList
+      val n = if (pl.lastOption.map(pred).getOrElse(false)) 1 else 0
+      p.dropLastIf(pred).toList === pl.dropRight(n) &&
+      p.dropLastIf(_ => false).toList === p.toList
+    }) &&
     ("dropWhile" |: {
       (p.toList.dropWhile(g) === p.dropWhile(g).toList)
     }) &&
@@ -76,6 +87,9 @@ object ProcessSpec extends Properties("Process1") {
     }) &&
     ("forall" |: {
       (List(p.toList.forall(g)) === p.forall(g).toList)
+    }) &&
+    ("lastOr" |: {
+      p.pipe(lastOr(42)).toList === p.toList.lastOption.orElse(Some(42)).toList
     }) &&
     ("zip" |: {
       (p.toList.zip(p2.toList) === p.zip(p2).toList)
@@ -92,6 +106,12 @@ object ProcessSpec extends Properties("Process1") {
     ("scan1" |: {
        p.toList.scan(0)(_ + _).tail ===
        p.toSource.scan1(_ + _).runLog.timed(3000).run.toList
+    }) &&
+    ("shiftRight" |: {
+      p.pipe(shiftRight(1, 2)).toList === List(1, 2) ++ p.toList
+    }) &&
+    ("splitWith" |: {
+      p.splitWith(_ < n).toList.map(_.toList) === p.toList.splitWith(_ < n)
     }) &&
     ("sum" |: {
       p.toList.sum[Int] ===
@@ -153,13 +173,17 @@ object ProcessSpec extends Properties("Process1") {
     Process("hello").repartition(_ => Vector()).toList == List()
   }
 
+  property("stripNone") = secure {
+    Process(None, Some(1), None, Some(2), None).pipe(stripNone).toList === List(1, 2)
+  }
+
   property("terminated") = secure {
     Process(1, 2, 3).terminated.toList == List(Some(1), Some(2), Some(3), None)
   }
 
   property("unfold") = secure {
     Process.unfold((0, 1)) {
-      case (f1, f2) => if (f1 <= 13) Some((f1, f2), (f2, f1 + f2)) else None
+      case (f1, f2) => if (f1 <= 13) Some(((f1, f2), (f2, f1 + f2))) else None
     }.map(_._1).runLog.run.toList == List(0, 1, 1, 2, 3, 5, 8, 13)
   }
 

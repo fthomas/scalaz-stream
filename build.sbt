@@ -2,7 +2,7 @@ organization := "org.scalaz.stream"
 
 name := "scalaz-stream"
 
-version := "SNAPSHOT"
+version := "snapshot-0.4"
 
 scalaVersion := "2.10.2"
 
@@ -11,7 +11,9 @@ scalacOptions ++= Seq(
   "-language:implicitConversions",
   "-language:higherKinds",
   "-language:existentials",
-  "-language:postfixOps"
+  "-language:postfixOps",
+  "-Xfatal-warnings",
+  "-Yno-adapted-args"
 )
 
 resolvers ++= Seq(Resolver.sonatypeRepo("releases"), Resolver.sonatypeRepo("snapshots"))
@@ -43,3 +45,5 @@ OsgiKeys.importPackage := Seq(
   """scalaz.*;version="$<range;[===,=+);$<@>>"""",
   "*"
 )
+
+ScctPlugin.instrumentSettings
