@@ -3,7 +3,6 @@ package scalaz.stream
 import java.io.{ InputStream, OutputStream }
 import java.lang.{ Process => SysProcess, ProcessBuilder }
 import scala.io.Codec
-import scalaz.Monoid
 import scalaz.concurrent.Task
 
 import Process._
@@ -23,8 +22,11 @@ TODO:
   Possibly by adding more parameters the the create?Process methods.
 
 - Support terminating a running Subprocess via Process.destory().
+  - maybe use Process[Task, Process[Task, Subprocess[]]] for this
 
 - Find better names for createRawProcess and createLineProcess.
+  - Subprocess should not be concerned with lines or decoding.
+    it just outputs Bytes
 */
 
 case class Subprocess[+R, -W](
@@ -52,7 +54,7 @@ object Subprocess {
   def createRawProcess(args: String*): Process[Task, Subprocess[Bytes, Bytes]] =
     io.resource(
       Task.delay(new ProcessBuilder(args: _*).start))(
-      p => Task.delay(close(p)))(
+      close2)(
       p => Task.delay(mkRawSubprocess(p))).once
 
   def createLineProcess(args: String*)(implicit codec: Codec): Process[Task, Subprocess[String, String]] =
@@ -68,40 +70,14 @@ object Subprocess {
 
 
 
-  def createX1(args: String*): Process[Task, SystemExchange[Bytes, Bytes]] =
-    io.resource(
-      Task.delay(new ProcessBuilder(args: _*).start))(
-      p => Task.delay(close(p)))(
-      p => Task.delay(mkSystemExchange(p))).once
-
-  def createX2(args: String*)(implicit codec: Codec): Process[Task, Exchange[String, String]] =
-    createX1(args: _*).map(_.pipeW(linesOut).mapO {
-        case -\/(a) => a
-        case \/-(a) => a
-    }).map(_.pipeO(linesIn))
-
-
-  type SystemExchange[R, W] = Exchange[R \/ R, W]
-
-  private def mkSystemExchange(p: SysProcess): SystemExchange[Bytes, Bytes] = {
-    Exchange(
-      mkMergedSources(p.getErrorStream, p.getInputStream),
-      mkSink(p.getOutputStream))
-  }
 
   private def mkSink(os: OutputStream): Sink[Task, Bytes] =
     io.channel {
       (bytes: Bytes) => Task.delay {
         os.write(bytes.toArray)
-        os.flush
+        os.flush()
       }
     }
-
-  private def mkMergedSources(err: InputStream, out: InputStream): Process[Task, Bytes \/ Bytes] = {
-    val errProc: Process[Task, Bytes \/ Bytes] = mkSource(err).map(left)
-    val outProc: Process[Task, Bytes \/ Bytes] = mkSource(out).map(right)
-    errProc.merge(outProc)
-  }
 
   private def mkSource(is: InputStream): Process[Task, Bytes] = {
     val maxSize = 4096
@@ -117,12 +93,25 @@ object Subprocess {
     repeatEval(readChunk)
   }
 
+  private def closeStreams(p: SysProcess): Unit = {
+    p.getOutputStream.close()
+    p.getInputStream.close()
+    p.getErrorStream.close()
+  }
+
+  // use Task?
   private def close(p: SysProcess): Int = {
-    p.getOutputStream.close
-    p.getInputStream.close
-    p.getErrorStream.close
+    closeStreams(p)
     p.waitFor
   }
+
+  def close2(p: SysProcess): Task[Unit] = Task.delay(close(p))
+
+  private def kill(p: SysProcess): Unit = {
+    closeStreams(p)
+    p.destroy()
+  }
+
 
   // These processes are independent of Subprocess and could be moved into process1:
 
@@ -130,18 +119,9 @@ object Subprocess {
   def encode(implicit codec: Codec): Process1[String, Bytes] =
     lift(s => Bytes.unsafe(s.getBytes(codec.charSet)))
 
-  /**
-   * Appends a linefeed to all input strings and converts them to `Bytes`
-   * using the implicitly supplied `Codec`.
-   */
   def linesOut(implicit codec: Codec): Process1[String, Bytes] =
     lift((_: String) + "\n") |> encode
 
-  /**
-   * Assembles the inputs to complete lines and converts them to `String`
-   * using the implicitly supplied `Codec`. This process takes care of
-   * lines that are spread over multiple inputs.
-   */
   def linesIn(implicit codec: Codec): Process1[Bytes, String] = {
     def splitLines(bytes: Bytes): Vector[Bytes] = {
       def go(bytes: Bytes, acc: Vector[Bytes]): Vector[Bytes] =
@@ -153,20 +133,5 @@ object Subprocess {
     }
     repartition(splitLines).map(_.decode(codec.charSet))
   }
-
-  def repartition[I](p: I => Vector[I])(implicit M: Monoid[I]): Process1[I,I] = {
-    def go(carry: I): Process1[I,I] =
-      await1[I].flatMap { i =>
-        val parts = p(M.append(carry, i))
-        parts.size match {
-          case 0 => go(M.zero)
-          case 1 => go(parts.head)
-          case _ => emitSeq(parts.init) fby go(parts.last)
-        }
-      } orElse emit(carry)
-    go(M.zero)
-  }
-
-
 
 }

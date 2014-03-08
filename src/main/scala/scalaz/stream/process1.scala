@@ -14,7 +14,30 @@ import scala.Some
 import scalaz.stream.Process.Halt
 import scalaz.stream.ReceiveY.{HaltL, HaltR, ReceiveR, ReceiveL}
 
+import java.security.MessageDigest
+
 trait process1 {
+
+  def md52: Process1[Bytes,Bytes] = {
+    def go(digest: MessageDigest): Process1[Bytes,Bytes] =
+      await1[Bytes].flatMap { bytes =>
+        bytes.asByteBuffers.foreach(digest.update)
+        go(digest)
+      } orElse emitLazy(Bytes.unsafe(digest.digest()))
+    go(MessageDigest.getInstance("MD5"))
+  }
+
+  def md5: Process1[Array[Byte],Array[Byte]] = {
+    def go(digest: MessageDigest): Process1[Array[Byte],Array[Byte]] =
+      await1[Array[Byte]].flatMap { bytes =>
+        digest.update(bytes)
+        go(digest)
+      } orElse emitLazy(digest.digest())
+    go(MessageDigest.getInstance("MD5"))
+  }
+
+  //def md5: Process1[Bytes,Bytes] = digest("MD5")
+  //def sha1: Process1[Bytes,Bytes] = digest("SHA-1")
 
   // nb: methods are in alphabetical order, there are going to be so many that
   // any other order will just going get confusing
