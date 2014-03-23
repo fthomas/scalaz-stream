@@ -1,31 +1,54 @@
-[info] ::Benchmark process1.lastOrOld::
-[info] cores: 4
-[info] hostname: kallisto
-[info] jvm-name: OpenJDK 64-Bit Server VM
-[info] jvm-vendor: Oracle Corporation
-[info] jvm-version: 23.7-b01
-[info] os-arch: amd64
-[info] os-name: Linux
-[info] Parameters(n -> 1000): 5.049586
-[info] Parameters(n -> 5000): 24.86908
-[info] Parameters(n -> 9000): 44.295754
-[info] Parameters(n -> 13000): 63.199406
-[info] Parameters(n -> 17000): 82.807764
-[info] Parameters(n -> 21000): 102.190692
-[info] Parameters(n -> 25000): 121.840404
-[info] 
-[info] ::Benchmark process1.lastOr::
-[info] cores: 4
-[info] hostname: kallisto
-[info] jvm-name: OpenJDK 64-Bit Server VM
-[info] jvm-vendor: Oracle Corporation
-[info] jvm-version: 23.7-b01
-[info] os-arch: amd64
-[info] os-name: Linux
-[info] Parameters(n -> 1000): 2.750101
-[info] Parameters(n -> 5000): 13.353197
-[info] Parameters(n -> 9000): 24.004312
-[info] Parameters(n -> 13000): 34.68223
-[info] Parameters(n -> 17000): 45.321311
-[info] Parameters(n -> 21000): 55.916328
-[info] Parameters(n -> 25000): 66.401357
+Loading /usr/share/sbt/bin/sbt-launch-lib.bash
+[0m[[0minfo[0m] [0mLoading global plugins from /home/frank/.sbt/0.13/plugins[0m
+[0m[[0minfo[0m] [0mLoading project definition from /home/frank/data/code/scalaz-stream/fthomas/project[0m
+[0m[[0minfo[0m] [0mSet current project to scalaz-stream (in build file:/home/frank/data/code/scalaz-stream/fthomas/)[0m
+[0m[[0minfo[0m] [0m::Benchmark process1.stripNoneOld::[0m
+[0m[[0minfo[0m] [0mcores: 4[0m
+[0m[[0minfo[0m] [0mhostname: kallisto[0m
+[0m[[0minfo[0m] [0mjvm-name: OpenJDK 64-Bit Server VM[0m
+[0m[[0minfo[0m] [0mjvm-vendor: Oracle Corporation[0m
+[0m[[0minfo[0m] [0mjvm-version: 24.51-b03[0m
+[0m[[0minfo[0m] [0mos-arch: amd64[0m
+[0m[[0minfo[0m] [0mos-name: Linux[0m
+[0m[[0minfo[0m] [0mParameters(n -> 1000): 1.03744[0m
+[0m[[0minfo[0m] [0mParameters(n -> 5000): 5.042447[0m
+[0m[[0minfo[0m] [0mParameters(n -> 9000): 9.120528[0m
+[0m[[0minfo[0m] [0mParameters(n -> 13000): 13.006157[0m
+[0m[[0minfo[0m] [0mParameters(n -> 17000): 17.047867[0m
+[0m[[0minfo[0m] [0mParameters(n -> 21000): 21.014947[0m
+[0m[[0minfo[0m] [0mParameters(n -> 25000): 24.979096[0m
+[0m[[0minfo[0m] [0m[0m
+[0m[[0minfo[0m] [0m::Benchmark process1.stripNoneOldCollect::[0m
+[0m[[0minfo[0m] [0mcores: 4[0m
+[0m[[0minfo[0m] [0mhostname: kallisto[0m
+[0m[[0minfo[0m] [0mjvm-name: OpenJDK 64-Bit Server VM[0m
+[0m[[0minfo[0m] [0mjvm-vendor: Oracle Corporation[0m
+[0m[[0minfo[0m] [0mjvm-version: 24.51-b03[0m
+[0m[[0minfo[0m] [0mos-arch: amd64[0m
+[0m[[0minfo[0m] [0mos-name: Linux[0m
+[0m[[0minfo[0m] [0mParameters(n -> 1000): 1.27984[0m
+[0m[[0minfo[0m] [0mParameters(n -> 5000): 5.987431[0m
+[0m[[0minfo[0m] [0mParameters(n -> 9000): 11.04843[0m
+[0m[[0minfo[0m] [0mParameters(n -> 13000): 15.643392[0m
+[0m[[0minfo[0m] [0mParameters(n -> 17000): 20.360155[0m
+[0m[[0minfo[0m] [0mParameters(n -> 21000): 25.176203[0m
+[0m[[0minfo[0m] [0mParameters(n -> 25000): 29.874448[0m
+[0m[[0minfo[0m] [0m[0m
+[0m[[0minfo[0m] [0m::Benchmark process1.stripNone::[0m
+[0m[[0minfo[0m] [0mcores: 4[0m
+[0m[[0minfo[0m] [0mhostname: kallisto[0m
+[0m[[0minfo[0m] [0mjvm-name: OpenJDK 64-Bit Server VM[0m
+[0m[[0minfo[0m] [0mjvm-vendor: Oracle Corporation[0m
+[0m[[0minfo[0m] [0mjvm-version: 24.51-b03[0m
+[0m[[0minfo[0m] [0mos-arch: amd64[0m
+[0m[[0minfo[0m] [0mos-name: Linux[0m
+[0m[[0minfo[0m] [0mParameters(n -> 1000): 1.061937[0m
+[0m[[0minfo[0m] [0mParameters(n -> 5000): 4.896151[0m
+[0m[[0minfo[0m] [0mParameters(n -> 9000): 8.824144[0m
+[0m[[0minfo[0m] [0mParameters(n -> 13000): 12.688579[0m
+[0m[[0minfo[0m] [0mParameters(n -> 17000): 16.5701[0m
+[0m[[0minfo[0m] [0mParameters(n -> 21000): 20.439307[0m
+[0m[[0minfo[0m] [0mParameters(n -> 25000): 24.278999[0m
+[0m[[0minfo[0m] [0m[0m
+[0m[[0minfo[0m] [0mPassed: Total 0, Failed 0, Errors 0, Passed 0[0m
+[0m[[32msuccess[0m] [0mTotal time: 104 s, completed Mar 23, 2014 8:01:29 AM[0m

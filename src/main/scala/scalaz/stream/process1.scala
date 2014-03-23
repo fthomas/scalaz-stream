@@ -88,7 +88,17 @@ trait process1 {
    *
    */
   def collect[I,I2](pf: PartialFunction[I,I2]): Process1[I,I2] =
+    await1[I].flatMap {
+      pf.andThen {
+        i => emit(i) fby collect(pf)
+      } orElse {
+        case _ => collect(pf)
+      }
+    }
+
+  def collectOld[I,I2](pf: PartialFunction[I,I2]): Process1[I,I2] = {
     id[I].flatMap(pf andThen(emit) orElse { case _ => halt })
+  }
 
   /**
    * Like `collect`, but emits only the first element of this process on which
@@ -521,6 +531,12 @@ trait process1 {
 
   /** Remove any `None` inputs. */
   def stripNone[A]: Process1[Option[A],A] =
+    collect { case Some(a) => a }
+
+  def stripNoneOldCollect[A]: Process1[Option[A],A] =
+    collectOld { case Some(a) => a }
+
+  def stripNoneOld[A]: Process1[Option[A],A] =
     await1[Option[A]].flatMap {
       case None => stripNone
       case Some(a) => emit(a) ++ stripNone
