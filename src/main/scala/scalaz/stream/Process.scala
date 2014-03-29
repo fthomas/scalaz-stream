@@ -23,6 +23,7 @@ import scalaz.\/-
 import scalaz.-\/
 import scalaz.stream.ReceiveY.ReceiveR
 import java.util.concurrent.atomic.AtomicBoolean
+import scalaz.stream.wye.AwaitL
 
 /**
  * A `Process[F,O]` represents a stream of `O` values which can interleave
@@ -136,9 +137,6 @@ sealed abstract class Process[+F[_],+O] extends Process1Ops[F,O] {
         Await(req, recv andThen (_ fby p2), fb, c)
     }
   }
-
-  /** operator alias for `fby` */
-  final def |||[F2[x]>:F[x],O2>:O](p2: => Process[F2,O2]): Process[F2,O2] = fby(p2)
 
   /**
    * Removes all emitted elements from the front of this `Process`.
@@ -1477,6 +1475,9 @@ object Process {
 
     private[stream] def contramapR_[I3](f: I3 => I2): Wye[I, I3, O] =
       self.attachR(process1.lift(f))
+
+
+
   }
 
   implicit class ChannelSyntax[F[_],I,O](self: Channel[F,I,O]) {
