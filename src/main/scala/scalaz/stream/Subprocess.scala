@@ -1,14 +1,14 @@
 package scalaz.stream
 
-import java.io.{ InputStream, OutputStream }
-import java.lang.{ Process => SysProcess, ProcessBuilder }
+import java.io.{InputStream, OutputStream}
+import java.lang.{Process => SysProcess, ProcessBuilder}
 import scala.io.Codec
 import scalaz.concurrent.Task
+import scodec.bits.ByteVector
 
 import Process._
 import process1._
-import scalaz.{\/-, -\/, \/}
-import scalaz.\/._
+
 
 /*
 TODO:
@@ -79,7 +79,7 @@ object Subprocess {
       }
     }
 
-  private def mkSource(is: InputStream): Process[Task, Bytes] = {
+  private def mkSource(is: InputStream): Process[Task,ByteVector] = {
     val maxSize = 4096
     val buffer = Array.ofDim[Byte](maxSize)
 
@@ -87,7 +87,7 @@ object Subprocess {
       val size = math.min(is.available, maxSize)
       if (size > 0) {
         is.read(buffer, 0, size)
-        Bytes.of(buffer, 0, size)
+        ByteVector.view(buffer.take(size))
       } else throw End
     }
     repeatEval(readChunk)
