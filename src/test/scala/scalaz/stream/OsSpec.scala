@@ -6,7 +6,7 @@ import scala.concurrent.duration._
 import Process._
 import Subprocess._
 
-object SubprocessSpec extends Properties("Subprocess") {
+object OsSpec extends Properties("os") {
   def sleep = Process.sleep(10.millis)
 
   property("read-only") = secure {

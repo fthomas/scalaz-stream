@@ -1,14 +1,16 @@
 package scalaz.stream
 
 import java.io.{InputStream, OutputStream}
-import java.lang.{Process => SysProcess, ProcessBuilder}
-import scala.io.Codec
+import java.lang.{Process => JavaProcess, ProcessBuilder}
 import scalaz.concurrent.Task
+import scalaz.syntax.bind._
 import scodec.bits.ByteVector
 
 import Process._
-import process1._
 
+object os {
+
+}
 
 /*
 TODO:
@@ -24,9 +26,7 @@ TODO:
 - Support terminating a running Subprocess via Process.destory().
   - maybe use Process[Task, Process[Task, Subprocess[]]] for this
 
-- Find better names for createRawProcess and createLineProcess.
-  - Subprocess should not be concerned with lines or decoding.
-    it just outputs Bytes
+- Find better names for createRawProcess
 */
 
 case class Subprocess[+R, -W](
@@ -57,12 +57,7 @@ object Subprocess {
       close2)(
       p => Task.delay(mkRawSubprocess(p))).once
 
-  def createLineProcess(args: String*)(implicit codec: Codec): Process[Task, Subprocess[String, String]] =
-    createRawProcess(args: _*).map {
-      _.mapSources(_.pipe(linesIn)).mapSink(_.pipeIn(linesOut))
-    }
-
-  private def mkRawSubprocess(p: SysProcess): Subprocess[Bytes, Bytes] =
+  private def mkRawSubprocess(p: JavaProcess): Subprocess[Bytes, Bytes] =
     Subprocess(
       mkSink(p.getOutputStream),
       mkSource(p.getInputStream),
@@ -71,9 +66,9 @@ object Subprocess {
 
 
 
-  private def mkSink(os: OutputStream): Sink[Task, Bytes] =
+  private def mkSink(os: OutputStream): Sink[Task,ByteVector] =
     io.channel {
-      (bytes: Bytes) => Task.delay {
+      (bytes: ByteVector) => Task.delay {
         os.write(bytes.toArray)
         os.flush()
       }
@@ -93,45 +88,16 @@ object Subprocess {
     repeatEval(readChunk)
   }
 
-  private def closeStreams(p: SysProcess): Unit = {
-    p.getOutputStream.close()
-    p.getInputStream.close()
-    p.getErrorStream.close()
-  }
-
-  // use Task?
-  private def close(p: SysProcess): Int = {
-    closeStreams(p)
-    p.waitFor
-  }
-
-  def close2(p: SysProcess): Task[Unit] = Task.delay(close(p))
-
-  private def kill(p: SysProcess): Unit = {
-    closeStreams(p)
-    p.destroy()
-  }
-
-
-  // These processes are independent of Subprocess and could be moved into process1:
-
-  /** Converts `String` to `Bytes` using the implicitly supplied `Codec`. */
-  def encode(implicit codec: Codec): Process1[String, Bytes] =
-    lift(s => Bytes.unsafe(s.getBytes(codec.charSet)))
-
-  def linesOut(implicit codec: Codec): Process1[String, Bytes] =
-    lift((_: String) + "\n") |> encode
-
-  def linesIn(implicit codec: Codec): Process1[Bytes, String] = {
-    def splitLines(bytes: Bytes): Vector[Bytes] = {
-      def go(bytes: Bytes, acc: Vector[Bytes]): Vector[Bytes] =
-        bytes.span(_ != '\n'.toByte) match {
-          case (line, Bytes.empty) => acc :+ line
-          case (line, rest)        => go(rest.drop(1), acc :+ line)
-        }
-      go(bytes, Vector())
+  private def closeStreams(p: JavaProcess): Task[Unit] =
+    Task.delay {
+      p.getOutputStream.close()
+      p.getInputStream.close()
+      p.getErrorStream.close()
     }
-    repartition(splitLines).map(_.decode(codec.charSet))
-  }
 
+  private def closeProcess(p: JavaProcess): Task[Int] =
+    closeStreams(p) >> Task.delay(p.waitFor())
+
+  private def killProcess(p: JavaProcess): Task[Unit] =
+    closeStreams(p) >> Task.delay(p.destroy())
 }
