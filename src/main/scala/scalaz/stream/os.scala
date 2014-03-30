@@ -36,25 +36,13 @@ case class Subprocess[+R, -W](
 
   //def outputEx = Exchange(output, input)
   //def errorEx = Exchange(error, input)
-
-  def contramapW[W2](f: W2 => W): Subprocess[R, W2] =
-    Subprocess(input.contramap(f), output, error)
-
-  def mapR[R2](f: R => R2): Subprocess[R2, W] =
-    Subprocess(input, output.map(f), error.map(f))
-
-  def mapSink[W2](f: Sink[Task, W] => Sink[Task, W2]): Subprocess[R, W2] =
-    Subprocess(f(input), output, error)
-
-  def mapSources[R2](f: Process[Task, R] => Process[Task, R2]): Subprocess[R2, W] =
-    Subprocess(input, f(output), f(error))
 }
 
 object Subprocess {
   def createRawProcess(args: String*): Process[Task, Subprocess[Bytes, Bytes]] =
     io.resource(
       Task.delay(new ProcessBuilder(args: _*).start))(
-      close2)(
+      p => closeProcess(p).map(()))(
       p => Task.delay(mkRawSubprocess(p))).once
 
   private def mkRawSubprocess(p: JavaProcess): Subprocess[Bytes, Bytes] =
