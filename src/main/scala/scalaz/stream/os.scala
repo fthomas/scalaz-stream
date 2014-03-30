@@ -1,16 +1,16 @@
 package scalaz.stream
 
-import java.io.{InputStream, OutputStream}
+import java.io.{File, InputStream, OutputStream}
 import java.lang.{Process => JavaProcess, ProcessBuilder}
 import scalaz.concurrent.Task
+import scalaz.\/
+import scalaz.\/._
 import scalaz.syntax.bind._
 import scodec.bits.ByteVector
 
 import Process._
 
-object os {
-
-}
+// https://github.com/scalaz/scalaz-stream/pull/79
 
 /*
 TODO:
@@ -20,39 +20,44 @@ TODO:
 
 - Expose the return value of Process.waitFor().
 
-- Support ProcessBuilder's directory, environment, redirectErrrorStream methods.
-  Possibly by adding more parameters the the create?Process methods.
-
 - Support terminating a running Subprocess via Process.destory().
   - maybe use Process[Task, Process[Task, Subprocess[]]] for this
 
-- Find better names for createRawProcess
+- Find better names for createRawProcess / popen
+
+- add type alias for Exchange[ByteVector \/ ByteVector,ByteVector]
 */
 
-case class Subprocess[+R, -W](
-  input: Sink[Task, W],
-  output: Process[Task, R],
-  error: Process[Task, R]) {
-
-  //def outputEx = Exchange(output, input)
-  //def errorEx = Exchange(error, input)
-}
-
-object Subprocess {
-  def createRawProcess(args: String*): Process[Task, Subprocess[Bytes, Bytes]] =
-    io.resource(
-      Task.delay(new ProcessBuilder(args: _*).start))(
-      p => closeProcess(p).map(()))(
-      p => Task.delay(mkRawSubprocess(p))).once
-
-  private def mkRawSubprocess(p: JavaProcess): Subprocess[Bytes, Bytes] =
-    Subprocess(
-      mkSink(p.getOutputStream),
-      mkSource(p.getInputStream),
-      mkSource(p.getErrorStream))
+object os {
+  def popen(args: String*): Process[Task,Exchange[ByteVector \/ ByteVector,ByteVector]] =
+    io.resource(mkJavaProcess(args))(closeJavaProcessIgnore)(mkExchange).once
 
 
 
+  case class SubprocessArgs(
+    command: List[String],
+    directory: Option[File] = None,
+    mergeOutAndErr: Boolean = false)
+
+  private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
+    Task.delay {
+      val pb = new ProcessBuilder(args.command: _*)
+      args.directory.foreach(pb.directory)
+      pb.redirectErrorStream(args.mergeOutAndErr)
+      pb.start()
+    }
+
+  private def mkSimpleExchange(p: JavaProcess): Task[Exchange[ByteVector,ByteVector]] =
+    Task.delay(Exchange(mkSource(p.getInputStream), mkSink(p.getOutputStream)))
+
+  private def mkExchange(p: JavaProcess): Task[Exchange[ByteVector \/ ByteVector,ByteVector]] =
+    Task.delay(Exchange(mergeSources(p), mkSink(p.getOutputStream)))
+
+  private def mergeSources(p: JavaProcess): Process[Task,ByteVector \/ ByteVector] = {
+    val out = mkSource(p.getInputStream).map(right)
+    val err = mkSource(p.getErrorStream).map(left)
+    out merge err
+  }
 
   private def mkSink(os: OutputStream): Sink[Task,ByteVector] =
     io.channel {
@@ -83,9 +88,12 @@ object Subprocess {
       p.getErrorStream.close()
     }
 
-  private def closeProcess(p: JavaProcess): Task[Int] =
+  private def closeJavaProcess(p: JavaProcess): Task[Int] =
     closeStreams(p) >> Task.delay(p.waitFor())
 
-  private def killProcess(p: JavaProcess): Task[Unit] =
+  private def closeJavaProcessIgnore(p: JavaProcess): Task[Unit] =
+    closeJavaProcess(p).as(())
+
+  private def destroyJavaProcess(p: JavaProcess): Task[Unit] =
     closeStreams(p) >> Task.delay(p.destroy())
 }
