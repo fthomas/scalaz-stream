@@ -1,126 +1,84 @@
 package scalaz.stream
 
+import org.scalacheck.Prop._
 import org.scalacheck._
-import Prop._
 import scodec.bits.ByteVector
+
 import scala.concurrent.duration._
+import scalaz.stream.os._
 import Process._
-import os._
 
 object OsSpec extends Properties("os") {
   implicit val scheduler = scalaz.stream.DefaultScheduler
 
-  def sleep = Process.sleep(10.millis)
+  val sleep = Process.sleep(100.millis)
 
-  val linesIn: Process1[ByteVector, String] = text.utf8Decode |> text.lines()
+  val linesIn: Process1[ByteVector, String] =
+    text.utf8Decode |> text.lines()
 
-  /*
+  def waitForInput[I]: Process1[I, I] =
+    receive1Or[I, I](waitForInput)(emit)
+
   property("read-only") = secure {
-    val p = Subprocess.createX2("echo", "Hello World").flatMap {
-      sleep ++
-      _.read
-    }
-    p.runLog.run.toList == List("Hello World", "")
+    val p = popen("echo", "Hello World")
+      .flatMap(_.read.repeat.once).pipe(linesIn)
+    p.runLog.run.toList == List("Hello World")
   }
 
   property("read-only-2") = secure {
-    val p = Subprocess.createLineProcess("echo", "Hello\nWorld").flatMap {
-      sleep ++
-      _.output
-    }
-    p.runLog.run.toList == List("Hello", "World", "")
+    val p = os.popen("sh", "-c", "echo Hello; echo World")
+      .flatMap(_.read.repeat.once).pipe(linesIn)
+    p.runLog.run.toList == List("Hello", "World")
+  }
+
+  property("read-delayed") = secure {
+    val p = os.popen("sh", "-c", "echo Hello; sleep 0.5; echo World")
+      .flatMap(_.read.pipe(linesIn).repeat.takeThrough(_ != "World"))
+    p.runLog.run.toList == List("Hello", "World")
   }
 
   property("write-only") = secure {
-    val quit = Process("quit").toSource
-    val p = Subprocess.createLineProcess("bc").flatMap(quit to _.input)
-
+    val quit = Process("quit").pipe(text.utf8Encode).toSource
+    val p = os.popen("bc").flatMap(quit to _.write)
     p.runLog.run.toList == List(())
   }
 
-  property("read-write") = secure {
-    val calc = Process("2 + 3").toSource
-    val quit = Process("quit").toSource
-
-    val p = Subprocess.createLineProcess("bc").flatMap { s =>
-      calc.to(s.input).drain ++
-      sleep ++
-      s.output ++
-      quit.to(s.input).drain
-    }
-    p.runLog.run.toList == List("5", "")
-  }
-
   property("read-write-2") = secure {
-    val calc = Process("2 + 3", "3 + 5").toSource
-    val quit = Process("quit").toSource
+    val calc = Process("2 + 3\n").pipe(text.utf8Encode).toSource
+    val quit = Process("quit\n").pipe(text.utf8Encode).toSource
 
-    val p = Subprocess.createLineProcess("bc").flatMap { s =>
-      calc.to(s.input).drain ++
-      sleep ++
-      s.output ++
-      quit.to(s.input).drain
-    }
-    p.runLog.run.toList == List("5", "8", "")
+    val p = os.popen("bc").flatMap { s =>
+      calc.to(s.write).drain ++
+        s.read.repeat.once ++
+        quit.to(s.write).drain
+    }.pipe(linesIn)
+    p.runLog.run.toList == List("5")
   }
 
   property("read-write-3") = secure {
-    val calc1 = Process("2 + 3").toSource
-    val calc2 = Process("3 + 5").toSource
-    val quit = Process("quit").toSource
+    val calc = Process("2 + 3\n", "3 + 5\n").pipe(text.utf8Encode).toSource
+    val quit = Process("quit\n").pipe(text.utf8Encode).toSource
 
-    val p = Subprocess.createLineProcess("bc").flatMap { s =>
-      calc1.to(s.input).drain ++
-      calc2.to(s.input).drain ++
-      sleep ++
-      s.output ++
-      quit.to(s.input).drain
-    }
-    p.runLog.run.toList == List("5", "8", "")
+    val p = os.popen("bc").flatMap { s =>
+      calc.to(s.write).drain ++
+        s.read.repeat.once ++
+        quit.to(s.write).drain
+    }.pipe(linesIn)
+    p.runLog.run.toList == List("5", "8")
   }
 
-  property("linesIn") = secure {
-    val bytes = ByteVector.view("Hello\nWorld".getBytes)
-    val p = Process(bytes).pipe(linesIn).toSource
-    p.runLog.run.toList == List("Hello", "World")
+  property("read-write-4") = secure {
+    val calc1 = Process("2 + 3\n").pipe(text.utf8Encode).toSource
+    val calc2 = Process("3 + 5\n").pipe(text.utf8Encode).toSource
+    val quit = Process("quit\n").pipe(text.utf8Encode).toSource
+
+    val p = os.popen("bc").flatMap { s =>
+      calc1.to(s.write).drain ++
+        s.read.repeat.once ++
+        calc2.to(s.write).drain ++
+        s.read.repeat.once ++
+        quit.to(s.write).drain
+    }.pipe(linesIn)
+    p.runLog.run.toList == List("5", "8")
   }
-
-  property("linesIn-2") = secure {
-    val b1 = ByteVector.view("Hel".getBytes)
-    val b2 = ByteVector.view("lo\nWorld".getBytes)
-
-    val p = Process(b1, b2).pipe(linesIn).toSource
-    p.runLog.run.toList == List("Hello", "World")
-  }
-
-  property("linesIn-3") = secure {
-    val b1 = ByteVector.view("Hel".getBytes)
-    val b2 = ByteVector.view("lo".getBytes)
-    val b3 = ByteVector.view("\nWorld\n".getBytes)
-
-    val p = Process(b1, b2, b3).pipe(linesIn).toSource
-    println(p.runLog.run.toList)
-    p.runLog.run.toList == List("Hello", "World", "")
-  }
-
-  property("linesIn-4") = secure {
-    val b1 = ByteVector.view(Array[Byte](-30))
-    val b2 = ByteVector.view(Array[Byte](-126, -84))
-
-    val p = Process(b1, b2).pipe(linesIn).toSource
-    p.runLog.run.toList == List("€")
-  }
-
-  property("linesIn-5") = secure {
-    val bytes = ByteVector.view("\n".getBytes)
-    val p = Process(bytes).pipe(linesIn).toSource
-    p.runLog.run.toList == List("", "")
-  }
-
-  property("linesIn-6") = secure {
-    val bytes = ByteVector.view("Hello\n".getBytes)
-    val p = Process(bytes).pipe(linesIn).toSource
-    p.runLog.run.toList == List("Hello", "")
-  }
-  */
 }

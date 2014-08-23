@@ -1,14 +1,13 @@
 package scalaz.stream
 
-import java.io.{File, InputStream, OutputStream}
-import java.lang.{Process => JavaProcess, ProcessBuilder}
-import scalaz.concurrent.Task
-import scalaz.\/
-import scalaz.\/._
-import scalaz.syntax.bind._
+import java.io.{InputStream, OutputStream}
+import java.lang.{Process => JavaProcess}
+
 import scodec.bits.ByteVector
 
-import Process._
+import scalaz.concurrent.Task
+import scalaz.stream.Process._
+import scalaz.syntax.bind._
 
 // https://github.com/scalaz/scalaz-stream/pull/79
 
@@ -29,45 +28,16 @@ TODO:
 */
 
 object os {
-  def popen(args: String*): Process[Task,Exchange[ByteVector \/ ByteVector,ByteVector]] =
-    io.resource(mkJavaProcess(SubprocessArgs(args.toList)))(closeJavaProcessIgnore)(mkExchange).once
+  def popen(args: String*): Process[Task, Exchange[ByteVector, ByteVector]] =
+    io.resource(mkJavaProcess(args: _*))(closeJavaProcessIgnore)(mkSimpleExchange).once
 
+  private def mkJavaProcess(args: String*): Task[JavaProcess] =
+    Task.delay(new ProcessBuilder(args: _*).start())
 
-
-  case class SubprocessArgs(
-    command: List[String],
-    directory: Option[File] = None,
-    mergeOutAndErr: Boolean = false)
-
-  private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
-    Task.delay {
-      val pb = new ProcessBuilder(args.command: _*)
-      args.directory.foreach(pb.directory)
-      pb.redirectErrorStream(args.mergeOutAndErr)
-      pb.start()
-    }
-
-  private def mkSimpleExchange(p: JavaProcess): Task[Exchange[ByteVector,ByteVector]] =
+  private def mkSimpleExchange(p: JavaProcess): Task[Exchange[ByteVector, ByteVector]] =
     Task.delay(Exchange(mkSource(p.getInputStream), mkSink(p.getOutputStream)))
 
-  private def mkExchange(p: JavaProcess): Task[Exchange[ByteVector \/ ByteVector,ByteVector]] =
-    Task.delay(Exchange(mergeSources(p), mkSink(p.getOutputStream)))
-
-  private def mergeSources(p: JavaProcess): Process[Task,ByteVector \/ ByteVector] = {
-    val out = mkSource(p.getInputStream).map(right)
-    val err = mkSource(p.getErrorStream).map(left)
-    out merge err
-  }
-
-  private def mkSink(os: OutputStream): Sink[Task,ByteVector] =
-    io.channel {
-      (bytes: ByteVector) => Task.delay {
-        os.write(bytes.toArray)
-        os.flush()
-      }
-    }
-
-  private def mkSource(is: InputStream): Process[Task,ByteVector] = {
+  private def mkSource(is: InputStream): Process[Task, ByteVector] = {
     val maxSize = 4096
     val buffer = Array.ofDim[Byte](maxSize)
 
@@ -80,6 +50,14 @@ object os {
     }
     repeatEval(readChunk)
   }
+
+  private def mkSink(os: OutputStream): Sink[Task, ByteVector] =
+    io.channel {
+      (bytes: ByteVector) => Task.delay {
+        os.write(bytes.toArray)
+        os.flush()
+      }
+    }
 
   private def closeStreams(p: JavaProcess): Task[Unit] =
     Task.delay {
