@@ -30,7 +30,7 @@ TODO:
 
 object os {
   def popen(args: String*): Process[Task,Exchange[ByteVector \/ ByteVector,ByteVector]] =
-    io.resource(mkJavaProcess(args))(closeJavaProcessIgnore)(mkExchange).once
+    io.resource(mkJavaProcess(SubprocessArgs(args.toList)))(closeJavaProcessIgnore)(mkExchange).once
 
 
 
@@ -76,7 +76,7 @@ object os {
       if (size > 0) {
         is.read(buffer, 0, size)
         ByteVector.view(buffer.take(size))
-      } else throw End
+      } else throw Cause.Terminated(Cause.End)
     }
     repeatEval(readChunk)
   }
