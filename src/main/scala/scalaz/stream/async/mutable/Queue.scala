@@ -1,153 +1,260 @@
 package scalaz.stream.async.mutable
 
-import scalaz.\/
+import java.util.concurrent.atomic.AtomicInteger
+
+import scalaz.stream.Cause._
+import scalaz.concurrent.{Actor, Strategy, Task}
+import scalaz.stream.Process.Halt
+import scalaz.stream.async.immutable
+import scalaz.stream.{Cause, Util, Process, Sink}
+import scalaz.{Either3, -\/, \/, \/-}
 import scalaz.\/._
-import scalaz.concurrent._
-import java.util.concurrent.atomic._
-
-import scalaz.stream.Process
-import scalaz.stream.Process._
-
-trait Queue[A] {
-  protected def enqueueImpl(a: A): Unit
-  protected def dequeueImpl(cb: (Throwable \/ A) => Unit): Unit
-
-  /** 
-   * Asynchronously dequeue the next element from this `Queue`.
-   * If no elements are currently available, the given callback
-   * will be invoked later, when an element does become available,
-   * or if an error occurs.
-   */
-  def dequeue(cb: (Throwable \/ A) => Unit): Unit = 
-    dequeueImpl { r => sz.decrementAndGet; cb(r) }
-
-  /**
-   * Asynchronous trigger failure of this `Queue`. 
-   */
-  def fail(err: Throwable): Unit
-
-  /** 
-   * Halt consumers of this `Queue`, after allowing any unconsumed 
-   * queued elements to be processed first. For immediate 
-   * cancellation, ignoring any unconsumed elements, use `cancel`.  
-   */
-  def close: Unit
-
-  /**
-   * Halt consumers of this `Queue` immediately, ignoring any 
-   * unconsumed queued elements.
-   */
-  def cancel: Unit
-
-  /** 
-   * Add an element to this `Queue` in FIFO order, and update the
-   * size. 
-   */
-  def enqueue(a: A): Unit = {
-    sz.incrementAndGet
-    enqueueImpl(a)
-  }
-  private val sz = new AtomicInteger(0)
-
-  /** 
-   * Return the current number of unconsumed queued elements. 
-   * Guaranteed to take constant time, but may be immediately
-   * out of date.
-   */
-  def size = sz.get 
-
-  /** 
-   * Convert to a `Sink[Task, A]`. The `cleanup` action will be 
-   * run when the `Sink` is terminated.
-   */
-  def toSink(cleanup: Queue[A] => Task[Unit] = (q: Queue[A]) => Task.delay {}): Sink[Task, A] = 
-    scalaz.stream.async.toSink(this, cleanup)
-}
 
 
 /**
- * Queue that allows asynchronously create process or dump result of processes to
- * create eventually new processes that drain from this queue.
- *
- * Queue may have bound of its size, and that causes queue to control publishing processes
- * to stop publish when the queue reaches the size bound.
- * Bound (max size) is specified when queue is created, and may not be altered after.
- *
- * Queue also has signal that signals size of queue whenever that changes.
- * This may be used for example as additional flow control signalling outside this queue.
- *
- * Please see [[scalaz.stream.merge.JunctionStrategies.boundedQ]] for more details.
- *
+ * Asynchronous queue interface. Operations are all nonblocking in their
+ * implementations, but may be 'semantically' blocking. For instance,
+ * a queue may have a bound on its size, in which case enqueuing may
+ * block until there is an offsetting dequeue.
  */
-trait BoundedQueue[A] {
+trait Queue[A] {
 
   /**
-   * Provides a Sink, that allows to enqueue `A` in this queue
+   * A `Sink` for enqueueing values to this `Queue`.
    */
   def enqueue: Sink[Task, A]
 
   /**
-   * Enqueue one element in this Queue. Resulting task will terminate
-   * with failure if queue is closed or failed.
+   * Enqueue one element in this `Queue`. Resulting task will
+   * terminate with failure if queue is closed or failed.
    * Please note this will get completed _after_ `a` has been successfully enqueued.
    * @param a `A` to enqueue
-   * @return
    */
   def enqueueOne(a: A): Task[Unit]
 
   /**
-   * Enqueue sequence of `A` in this queue. It has same semantics as `enqueueOne`
-   * @param xa sequence of `A`
-   * @return
+   * Enqueue multiple `A` values in this queue. This has same semantics as sequencing
+   * repeated calls to `enqueueOne`.
    */
   def enqueueAll(xa: Seq[A]): Task[Unit]
 
   /**
    * Provides a process that dequeue from this queue.
    * When multiple consumers dequeue from this queue,
-   * Then they dequeue from this queue in first-come, first-server order.
+   * they dequeue in first-come, first-serve order.
    *
-   * Please use `Topic` instead of `Queue` when you have multiple subscribers that
-   * want to see each `A` value enqueued.
-   *
+   * Please use `Topic` instead of `Queue` when all subscribers
+   * need to see each value enqueued.
    */
   def dequeue: Process[Task, A]
 
   /**
-   * Provides signal, that contains size of this queue.
-   * Please note the discrete source from this signal only signal actual changes of state, not the
-   * values being enqueued or dequeued.
-   * That means elements can get enqueued and dequeued, but signal of size may not update,
-   * because size of the queue did not change.
-   *
+   * The time-varying size of this `Queue`. This signal refreshes
+   * only when size changes. Offsetting enqueues and dequeues may
+   * not result in refreshes.
    */
   def size: scalaz.stream.async.immutable.Signal[Int]
 
   /**
-   * Closes this queue. This has effect of enqueue Sink to be stopped
-   * and dequeue process to be stopped immediately after last `A` being drained from queue.
+   * Closes this queue. This halts the `enqueue` `Sink` and
+   * `dequeue` `Process` after any already-queued elements are
+   * drained.
    *
-   * Please note this is completed _AFTER_ this queue is completely drained and all publishers
-   * to queue are terminated.
+   * After this any enqueue will fail with `Terminated(End)`,
+   * and the enqueue `Sink` will terminate with `End`.
+   */
+  def close: Task[Unit] = failWithCause(End)
+
+
+  /**
+   * Kills the queue. Unlike `close`, this kills all dequeuers immediately.
+   * Any subsequent enqueues will fail with `Terminated(Kill)`.
+   * The returned `Task` will completed once all dequeuers and enqueuers
+   * have been signalled.
+   */
+  def kill: Task[Unit] = failWithCause(Kill)
+
+
+  /**
+   * Like `kill`, except it terminates with supplied reason.
+   */
+  def fail(rsn: Throwable): Task[Unit] = failWithCause(Error(rsn))
+
+  private[stream] def failWithCause(c:Cause): Task[Unit]
+}
+
+
+private[stream] object Queue {
+
+  /**
+   * Builds a queue, potentially with `source` producing the streams that
+   * will enqueue into queue. Up to `bound` size of `A` may enqueue into queue,
+   * and then all enqueue processes will wait until dequeue.
    *
+   * @param bound   Size of the bound. When <= 0 the queue is `unbounded`.
+   * @tparam A
+   * @return
    */
-  def close: Task[Unit] = fail(End)
+  def apply[A](bound: Int = 0)(implicit S: Strategy): Queue[A] = {
 
-  /**
-   * Closes this queue. Unlike `close` this is run immediately when called and will not wait until
-   * all elements are drained.
-   */
-  def closeNow: Unit = close.runAsync(_=>())
+    sealed trait M
+    case class Enqueue (a: Seq[A], cb: Throwable \/ Unit => Unit) extends M
+    case class Dequeue (ref:ConsumerRef, cb: Throwable \/ A => Unit) extends M
+    case class Fail(cause: Cause, cb: Throwable \/ Unit => Unit) extends M
+    case class GetSize(cb: (Throwable \/ Seq[Int]) => Unit) extends M
+    case class ConsumerDone(ref:ConsumerRef) extends M
+
+    // reference to identify differed subscribers
+    class ConsumerRef
 
 
-  /**
-   * Like `close`, except it terminates with supplied reason.
-   */
-  def fail(rsn: Throwable): Task[Unit]
+    //actually queued `A` are stored here
+    var queued = Vector.empty[A]
 
-  /**
-   * like `closeNow`, only allows to pass reason fro termination
-   */
-  def failNow(rsn:Throwable) : Unit = fail(rsn).runAsync(_=>())
+    // when this queue fails or is closed the reason is stored here
+    var closed: Option[Cause] = None
+
+    // consumers waiting for `A`
+    var consumers: Vector[(ConsumerRef, Throwable \/ A => Unit)] = Vector.empty
+
+    // publishers waiting to be acked to produce next `A`
+    var unAcked: Vector[Throwable \/ Unit => Unit] = Vector.empty
+
+    // if at least one GetSize was received will start to accumulate sizes change.
+    // when defined on left, contains sizes that has to be published to sizes topic
+    // when defined on right, awaiting next change in queue to signal size change
+    // when undefined, signals no subscriber for sizes yet.
+    var sizes:  Option[Vector[Int] \/ ((Throwable \/ Seq[Int]) => Unit)] = None
+
+    // signals to any callback that this queue is closed with reason
+    def signalClosed[B](cb: Throwable \/ B => Unit) =
+      closed.foreach(rsn => S(cb(-\/(Terminated(rsn)))))
+
+    // signals that size has been changed.
+    // either keep the last size or fill the callback
+    // only updates if sizes != None
+    def signalSize(sz: Int): Unit = {
+      sizes = sizes.map( cur =>
+        left(cur.fold (
+            szs => { szs :+ sz }
+            , cb => { S(cb(\/-(Seq(sz)))) ; Vector.empty[Int] }
+          ))
+      )
+    }
+
+
+
+
+    // publishes single size change
+    def publishSize(cb: (Throwable \/ Seq[Int]) => Unit): Unit = {
+      sizes =
+        sizes match {
+          case Some(sz) => sz match {
+            case -\/(v) if v.nonEmpty => S(cb(\/-(v))); Some(-\/(Vector.empty[Int]))
+            case _                    => Some(\/-(cb))
+          }
+          case None => S(cb(\/-(Seq(queued.size)))); Some(-\/(Vector.empty[Int]))
+        }
+    }
+
+    //dequeue one element from the queue
+    def dequeueOne(ref: ConsumerRef, cb: (Throwable \/ A => Unit)): Unit = {
+      queued.headOption match {
+        case Some(a) =>
+          S(cb(\/-(a)))
+          queued = queued.tail
+          signalSize(queued.size)
+          if (unAcked.size > 0 && bound > 0 && queued.size < bound) {
+            val ackCount = bound - queued.size min unAcked.size
+            unAcked.take(ackCount).foreach(cb => S(cb(\/-(()))))
+            unAcked = unAcked.drop(ackCount)
+          }
+
+        case None =>
+          val entry : (ConsumerRef, Throwable \/ A => Unit)  = (ref -> cb)
+          consumers = consumers :+ entry
+      }
+    }
+
+    def enqueueOne(as: Seq[A], cb: Throwable \/ Unit => Unit) = {
+      import scalaz.stream.Util._
+      queued = queued fast_++ as
+
+      if (consumers.size > 0 && queued.size > 0) {
+        val deqCount = consumers.size min queued.size
+
+        consumers.take(deqCount).zip(queued.take(deqCount))
+        .foreach { case ((_,cb), a) => S(cb(\/-(a))) }
+
+        consumers = consumers.drop(deqCount)
+        queued = queued.drop(deqCount)
+      }
+
+      if (bound > 0 && queued.size >= bound) unAcked = unAcked :+ cb
+      else S(cb(\/-(())))
+
+      signalSize(queued.size)
+    }
+
+    def stop(cause: Cause, cb: Throwable \/ Unit => Unit): Unit = {
+      closed = Some(cause)
+      if (queued.nonEmpty && cause == End) {
+        unAcked.foreach(cb => S(cb(-\/(Terminated(cause)))))
+      } else {
+        (consumers.map(_._2) ++ unAcked).foreach(cb => S(cb(-\/(Terminated(cause)))))
+        consumers = Vector.empty
+        sizes.flatMap(_.toOption).foreach(cb => S(cb(-\/(Terminated(cause)))))
+        sizes = None
+        queued = Vector.empty
+      }
+      unAcked = Vector.empty
+      S(cb(\/-(())))
+    }
+
+
+    val actor: Actor[M] = Actor({ (m: M) =>
+      if (closed.isEmpty) m match {
+        case Dequeue(ref, cb)     => dequeueOne(ref, cb)
+        case Enqueue(as, cb) => enqueueOne(as, cb)
+        case Fail(cause, cb)   => stop(cause, cb)
+        case GetSize(cb)     => publishSize(cb)
+        case ConsumerDone(ref) =>  consumers = consumers.filterNot(_._1 == ref)
+
+      } else m match {
+        case Dequeue(ref, cb) if queued.nonEmpty => dequeueOne(ref, cb)
+        case Dequeue(ref, cb)                    => signalClosed(cb)
+        case Enqueue(as, cb)                     => signalClosed(cb)
+        case GetSize(cb) if queued.nonEmpty      => publishSize(cb)
+        case GetSize(cb)                         => signalClosed(cb)
+        case Fail(_, cb)                         => S(cb(\/-(())))
+        case ConsumerDone(ref)                   =>  consumers = consumers.filterNot(_._1 == ref)
+      }
+    })(S)
+
+
+    new Queue[A] {
+      def enqueue: Sink[Task, A] = Process.constant(enqueueOne _)
+      def enqueueOne(a: A): Task[Unit] = enqueueAll(Seq(a))
+      def dequeue: Process[Task, A] = {
+        Process.await(Task.delay(new ConsumerRef))({ ref =>
+          Process.repeatEval(Task.async[A](cb => actor ! Dequeue(ref, cb)))
+          .onComplete(Process.eval_(Task.delay(actor ! ConsumerDone(ref))))
+        })
+      }
+
+      val size: immutable.Signal[Int] = {
+        val sizeSource : Process[Task,Int] =
+          Process.repeatEval(Task.async[Seq[Int]](cb => actor ! GetSize(cb)))
+          .flatMap(Process.emitAll)
+        Signal(sizeSource.map(Signal.Set.apply), haltOnSource =  true)(S)
+      }
+
+      def enqueueAll(xa: Seq[A]): Task[Unit] = Task.async(cb => actor ! Enqueue(xa,cb))
+
+      private[stream] def failWithCause(c: Cause): Task[Unit] = Task.async[Unit](cb => actor ! Fail(c,cb))
+    }
+
+  }
+
 
 }

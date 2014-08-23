@@ -1,4 +1,5 @@
 package scalaz.stream
+package examples
 
 import java.io._
 import org.scalacheck._
@@ -28,7 +29,7 @@ object ReadingUTF8 extends Properties("examples.ReadingUTF8") {
   val testFile = "testdata/utf8.txt"
 
   val scalazIo: Task[Option[Long]] =
-    Process.constant(bufferSize)
+    Process.constant(bufferSize).toSource
       .through(io.fileChunkR(testFile, bufferSize))
       .pipe(utf8Decode)
       .map(_.map(_.toLong).sum)
@@ -36,7 +37,7 @@ object ReadingUTF8 extends Properties("examples.ReadingUTF8") {
       .runLast
 
   val scalazIoNoUtf8: Task[Option[Long]] =
-    Process.constant(bufferSize)
+    Process.constant(bufferSize).toSource
       .through(io.fileChunkR(testFile, bufferSize))
       .map(_.toIterable.map(_.toLong).sum)
       .reduce(_ + _)
