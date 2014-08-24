@@ -1,23 +1,15 @@
 package scalaz.stream
 
-import org.scalacheck.Prop._
 import org.scalacheck._
+import org.scalacheck.Prop._
 import scodec.bits.ByteVector
 
-import scala.concurrent.duration._
-import scalaz.stream.os._
 import Process._
+import os._
 
 object OsSpec extends Properties("os") {
-  implicit val scheduler = scalaz.stream.DefaultScheduler
-
-  val sleep = Process.sleep(100.millis)
-
   val linesIn: Process1[ByteVector, String] =
     text.utf8Decode |> text.lines()
-
-  def waitForInput[I]: Process1[I, I] =
-    receive1Or[I, I](waitForInput)(emit)
 
   property("read-only") = secure {
     val p = popen("echo", "Hello World")

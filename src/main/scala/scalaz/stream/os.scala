@@ -2,12 +2,11 @@ package scalaz.stream
 
 import java.io.{InputStream, OutputStream}
 import java.lang.{Process => JavaProcess}
-
+import scalaz.concurrent.Task
+import scalaz.syntax.bind._
 import scodec.bits.ByteVector
 
-import scalaz.concurrent.Task
-import scalaz.stream.Process._
-import scalaz.syntax.bind._
+import Process._
 
 // https://github.com/scalaz/scalaz-stream/pull/79
 
