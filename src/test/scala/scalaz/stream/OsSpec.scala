@@ -90,19 +90,19 @@ object OsSpec extends Properties("OsSpec") {
       s.exitValue.runLog.run == List(0)
   }
 
-  /*
-  property("read-write-3") = secure {
-    val calc = Process("2 + 3\n", "3 + 5\n").pipe(text.utf8Encode).toSource
-    val quit = Process("quit\n").pipe(text.utf8Encode).toSource
-
-    val p = os.popen("bc").flatMap { s =>
-      calc.to(s.write).drain ++
-        s.read.repeat.once ++
-        quit.to(s.write).drain
-    }.pipe(lines)
-    p.runLog.run.toList == List("5", "8")
+  property("bc add twice") = secure {
+    val add = Process("2 + 3\n", "3 + 5\n").pipe(linesOut).toSource
+    val quit = Process("quit\n").pipe(linesOut).toSource
+    val s = os.spawn("bc")
+    val p = s.proc.flatMap { cp =>
+      add.to(cp.stdIn).drain ++
+        cp.stdOut.repeat.once ++
+        quit.to(cp.stdIn).drain
+    }.pipe(linesIn)
+    p.runLog.run == List("5", "8") && s.exitValue.runLog.run == List(0)
   }
 
+  /*
   property("read-write-4") = secure {
     val calc1 = Process("2 + 3\n").pipe(text.utf8Encode).toSource
     val calc2 = Process("3 + 5\n").pipe(text.utf8Encode).toSource
