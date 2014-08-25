@@ -6,38 +6,68 @@ import scalaz.concurrent.Task
 import scalaz.syntax.bind._
 import scodec.bits.ByteVector
 
+import Cause._
 import Process._
-
-// https://github.com/scalaz/scalaz-stream/pull/79
 
 /*
 TODO:
-- Naming: Having Process and Subprocess as types that are unrelated is
-  unfortunate. Possible alternative are: Sys(tem)Exchange, ProcExchange,
-  SystemProc, ChildProc, ProgramExchange?
+ - re-evaluate ideas from former PR:
+   https://github.com/scalaz/scalaz-stream/pull/79
 
-- Expose the return value of Process.waitFor().
+ - support terminating a running Subprocess via Process.destroy()
 
-- Support terminating a running Subprocess via Process.destory().
-  - maybe use Process[Task, Process[Task, Subprocess[]]] for this
+ - test that std streams and the process are closed on completion
 
-- Find better names for createRawProcess / popen
+ - add functions for Subprocess => Exchange
 
-- add type alias for Exchange[ByteVector \/ ByteVector,ByteVector]
+ - complete SubprocessArgs
 */
 
+final case class Subprocess[+R, -W](
+    stdIn: Sink[Task, W],
+    stdOut: Process[Task, R],
+    stdErr: Process[Task, R])
+
+final case class SubprocessCtrl[+R, -W](
+  proc: Process[Task, Subprocess[R, W]],
+  exitValue: Process[Task, Int])
+
+final case class SubprocessArgs(
+  command: Seq[String])
+
 object os {
-  def popen(args: String*): Process[Task, Exchange[ByteVector, ByteVector]] =
-    io.resource(mkJavaProcess(args: _*))(closeJavaProcessIgnore)(mkSimpleExchange).once
+  def spawn(args: String*): SubprocessCtrl[ByteVector, ByteVector] =
+    spawn(SubprocessArgs(args))
 
-  private def mkJavaProcess(args: String*): Task[JavaProcess] =
-    Task.delay(new ProcessBuilder(args: _*).start())
+  def spawn(args: SubprocessArgs): SubprocessCtrl[ByteVector, ByteVector] = {
+    val exitSignal = async.signal[Int]
+    val proc = io.resource {
+      mkJavaProcess(args)
+    } {
+      closeJavaProcess(_).flatMap(exitSignal.set)
+    } {
+      mkSubprocess
+    }.once
 
-  private def mkSimpleExchange(p: JavaProcess): Task[Exchange[ByteVector, ByteVector]] =
-    Task.delay(Exchange(mkSource(p.getInputStream), mkSink(p.getOutputStream)))
+    SubprocessCtrl(proc, exitSignal.discrete.once)
+  }
+
+  private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
+    Task.delay {
+      val pb = new ProcessBuilder(args.command: _*)
+      pb.start()
+    }
+
+  private def mkSubprocess(jp: JavaProcess): Task[Subprocess[ByteVector, ByteVector]] =
+    Task.delay {
+      Subprocess(
+        stdIn = mkSink(jp.getOutputStream),
+        stdOut = mkSource(jp.getInputStream),
+        stdErr = mkSource(jp.getErrorStream))
+    }
 
   private def mkSource(is: InputStream): Process[Task, ByteVector] = {
-    val maxSize = 4096
+    val maxSize = 8 * 1024
     val buffer = Array.ofDim[Byte](maxSize)
 
     val readChunk = Task.delay {
@@ -45,7 +75,7 @@ object os {
       if (size > 0) {
         is.read(buffer, 0, size)
         ByteVector.view(buffer.take(size))
-      } else throw Cause.Terminated(Cause.End)
+      } else throw Terminated(End)
     }
     repeatEval(readChunk)
   }
@@ -58,19 +88,16 @@ object os {
       }
     }
 
-  private def closeStreams(p: JavaProcess): Task[Unit] =
+  private def closeStreams(jp: JavaProcess): Task[Unit] =
     Task.delay {
-      p.getOutputStream.close()
-      p.getInputStream.close()
-      p.getErrorStream.close()
+      jp.getOutputStream.close()
+      jp.getInputStream.close()
+      jp.getErrorStream.close()
     }
 
-  private def closeJavaProcess(p: JavaProcess): Task[Int] =
-    closeStreams(p) >> Task.delay(p.waitFor())
+  private def closeJavaProcess(jp: JavaProcess): Task[Int] =
+    closeStreams(jp) >> Task.delay(jp.waitFor())
 
-  private def closeJavaProcessIgnore(p: JavaProcess): Task[Unit] =
-    closeJavaProcess(p).as(())
-
-  private def destroyJavaProcess(p: JavaProcess): Task[Unit] =
-    closeStreams(p) >> Task.delay(p.destroy())
+  private def destroyJavaProcess(jp: JavaProcess): Task[Unit] =
+    closeStreams(jp) >> Task.delay(jp.destroy())
 }
