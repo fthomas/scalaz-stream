@@ -71,10 +71,10 @@ object OsSpec extends Properties("OsSpec") {
     val add = Process("2 + 3\n").pipe(linesOut).toSource
     val quit = Process("quit\n").pipe(linesOut).toSource
     val s = os.spawn("bc")
-    val p = s.proc.flatMap { cp =>
-      add.to(cp.stdIn).drain ++
-        cp.stdOut.repeat.once ++
-        quit.to(cp.stdIn).drain
+    val p = s.proc.flatMap { sp =>
+      add.to(sp.stdIn).drain ++
+        sp.stdOut.repeat.once ++
+        quit.to(sp.stdIn).drain
     }.pipe(linesIn)
     p.runLog.run == List("5") && s.exitValue.runLog.run == List(0)
   }
@@ -82,40 +82,38 @@ object OsSpec extends Properties("OsSpec") {
   property("bc syntax error") = secure {
     val calc = Process("2 +\n").pipe(linesOut).toSource
     val s = os.spawn("bc")
-    val p = s.proc.flatMap { cp =>
-      calc.to(cp.stdIn).drain ++
-        cp.stdErr.repeat.once
+    val p = s.proc.flatMap { sp =>
+      calc.to(sp.stdIn).drain ++
+        sp.stdErr.repeat.once
     }.pipe(linesIn)
     p.runLog.run.forall(_.contains("syntax error")) &&
       s.exitValue.runLog.run == List(0)
   }
 
-  property("bc add twice") = secure {
+  property("bc add twice, 1 pass") = secure {
     val add = Process("2 + 3\n", "3 + 5\n").pipe(linesOut).toSource
     val quit = Process("quit\n").pipe(linesOut).toSource
     val s = os.spawn("bc")
-    val p = s.proc.flatMap { cp =>
-      add.to(cp.stdIn).drain ++
-        cp.stdOut.repeat.once ++
-        quit.to(cp.stdIn).drain
+    val p = s.proc.flatMap { sp =>
+      add.to(sp.stdIn).drain ++
+        sp.stdOut.repeat.once ++
+        quit.to(sp.stdIn).drain
     }.pipe(linesIn)
     p.runLog.run == List("5", "8") && s.exitValue.runLog.run == List(0)
   }
 
-  /*
-  property("read-write-4") = secure {
-    val calc1 = Process("2 + 3\n").pipe(text.utf8Encode).toSource
-    val calc2 = Process("3 + 5\n").pipe(text.utf8Encode).toSource
-    val quit = Process("quit\n").pipe(text.utf8Encode).toSource
-
-    val p = os.popen("bc").flatMap { s =>
-      calc1.to(s.write).drain ++
-        s.read.repeat.once ++
-        calc2.to(s.write).drain ++
-        s.read.repeat.once ++
-        quit.to(s.write).drain
-    }.pipe(lines)
-    p.runLog.run.toList == List("5", "8")
+  property("bc add twice, 2 pass") = secure {
+    val add1 = Process("2 + 3\n").pipe(linesOut).toSource
+    val add2 = Process("3 + 5\n").pipe(linesOut).toSource
+    val quit = Process("quit\n").pipe(linesOut).toSource
+    val s = os.spawn("bc")
+    val p = s.proc.flatMap { sp =>
+      add1.to(sp.stdIn).drain ++
+        sp.stdOut.repeat.once ++
+        add2.to(sp.stdIn).drain ++
+        sp.stdOut.repeat.once ++
+        quit.to(sp.stdIn).drain
+    }.pipe(linesIn)
+    p.runLog.run == List("5", "8")
   }
-  */
 }
