@@ -2,6 +2,8 @@ package scalaz.stream
 
 import java.io.{InputStream, OutputStream}
 import java.lang.{Process => JavaProcess}
+import scalaz.\/
+import scalaz.\/._
 import scalaz.concurrent.Task
 import scalaz.syntax.bind._
 import scodec.bits.ByteVector
@@ -18,17 +20,28 @@ TODO:
 
  - test that std streams and the process are closed on completion
 
- - add functions for Subprocess => Exchange
-
  - complete SubprocessArgs
 */
 
-final case class Subprocess[+R, -W](
+final case class Subprocess[R, W](
     stdIn: Sink[Task, W],
     stdOut: Process[Task, R],
-    stdErr: Process[Task, R])
+    stdErr: Process[Task, R]) {
 
-final case class SubprocessCtrl[+R, -W](
+  def toExchange: Exchange[R \/ R, W] =
+    Exchange(stdOut.map(right) merge stdErr.map(left), stdIn)
+
+  def toStdOutExchange: Exchange[R, W] =
+    Exchange(stdOut, stdIn)
+
+  def toStdErrExchange: Exchange[R, W] =
+    Exchange(stdErr, stdIn)
+
+  def toMergedExchange: Exchange[R, W] =
+    Exchange(stdOut merge stdErr, stdIn)
+}
+
+final case class SubprocessCtrl[R, W](
   proc: Process[Task, Subprocess[R, W]],
   exitValue: Process[Task, Int])
 
@@ -36,8 +49,8 @@ final case class SubprocessArgs(
   command: Seq[String])
 
 object os {
-  def spawn(args: String*): SubprocessCtrl[ByteVector, ByteVector] =
-    spawn(SubprocessArgs(args))
+  def spawnCmd(command: String*): SubprocessCtrl[ByteVector, ByteVector] =
+    spawn(SubprocessArgs(command))
 
   def spawn(args: SubprocessArgs): SubprocessCtrl[ByteVector, ByteVector] = {
     val exitSignal = async.signal[Int]
