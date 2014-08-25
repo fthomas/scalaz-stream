@@ -2,6 +2,8 @@ package scalaz.stream
 
 import org.scalacheck._
 import org.scalacheck.Prop._
+import scalaz.std.list._
+import scalaz.syntax.equal._
 import scodec.bits.ByteVector
 
 object OsSpec extends Properties("OsSpec") {
@@ -17,8 +19,8 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("empty stdout") = secure {
-    val p = os.spawn("true").proc.flatMap(_.stdOut)
-    p.runLog.run == List()
+    val p = os.spawn("true").proc.flatMap(_.stdOut.pipe(linesIn))
+    p.runLog.run.toList === List()
   }
 
   property("empty stderr") = secure {
@@ -60,6 +62,11 @@ object OsSpec extends Properties("OsSpec") {
     p.runLog.run == List() && s.exitValue.runLog.run == List(0)
   }
 
+  property("bc terminates") = secure {
+    os.spawn("bc").proc.run.run
+    true
+  }
+
   property("bc quit") = secure {
     val quit = Process("quit\n").pipe(linesOut).toSource
     val s = os.spawn("bc")
@@ -99,7 +106,8 @@ object OsSpec extends Properties("OsSpec") {
         sp.stdOut.repeat.once ++
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
-    p.runLog.run == List("5", "8") && s.exitValue.runLog.run == List(0)
+    p.runLog.run.toList === List("5", "8") &&
+      s.exitValue.runLog.run.toList === List(0)
   }
 
   property("bc add twice, 2 pass") = secure {
@@ -114,6 +122,16 @@ object OsSpec extends Properties("OsSpec") {
         sp.stdOut.repeat.once ++
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
-    p.runLog.run == List("5", "8")
+    p.runLog.run.toList === List("5", "8")
+  }
+
+  property("yes terminates") = secure {
+    os.spawn("yes").proc.run.run
+    true
+  }
+
+  property("yes output") = secure {
+    val p = os.spawn("yes").proc.flatMap(_.stdOut.repeat.once).pipe(linesIn).once
+    p.runLog.run.toList === List("y")
   }
 }
