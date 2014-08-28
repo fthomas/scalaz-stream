@@ -1,6 +1,6 @@
 package scalaz.stream
 
-import java.io.{InputStream, OutputStream}
+import java.io.{File, InputStream, OutputStream}
 import java.lang.{Process => JavaProcess}
 import scalaz.\/
 import scalaz.\/._
@@ -10,21 +10,6 @@ import scodec.bits.ByteVector
 
 import Cause._
 import Process._
-
-/*
-TODO:
- - re-evaluate ideas from former PR:
-   https://github.com/scalaz/scalaz-stream/pull/79
-
- - support terminating a running Subprocess via Process.destroy()
-
- - test that std streams and the process are closed on completion
-
- - complete SubprocessArgs
-
- - the state Signal is never closed. Problem? Yes!
-   spawn: Process[Task, SubprocessCtrl]
-*/
 
 object os {
   final case class Subprocess[R, W](
@@ -57,38 +42,52 @@ object os {
     destroy: Process[Task, Unit])
 
   final case class SubprocessArgs(
-    command: Seq[String])
+    command: Seq[String],
+    // TODO: environment
+    directory: Option[File] = None,
+    mergeOutAndErr: Boolean = false)
 
-  def spawnCmd(command: String*): SubprocessCtrl[ByteVector, ByteVector] =
-    spawn(SubprocessArgs(command))
+  type RawSubprocess = Subprocess[ByteVector, ByteVector]
+  type RawSubprocessCtrl = SubprocessCtrl[ByteVector, ByteVector]
 
-  def spawn(args: SubprocessArgs): SubprocessCtrl[ByteVector, ByteVector] = {
-    val state = async.signal[SubprocessState]
-    val destroy = async.signal[Task[Unit]]
-    state.set(NotRunning).run
+  def execCmd(command: String*): Process[Task, RawSubprocessCtrl] =
+    exec(SubprocessArgs(command))
 
-    val proc = io.resource {
-      for {
-        jp <- mkJavaProcess(args)
-        _ <- state.set(Running)
-        _ <- destroy.set(destroyJavaProcess(jp) >> state.set(Destroyed))
-      } yield jp
-    } { jp =>
-      for {
-        status <- closeJavaProcess(jp)
-        _ <- state.set(Exited(status))
-        _ <- destroy.close
-      } yield ()
-    } {
-      mkSubprocess
-    }.once
+  def exec(args: SubprocessArgs): Process[Task, RawSubprocessCtrl] = {
+    val state = Task.delay(async.signal[SubprocessState])
+      .flatMap(s => s.set(NotRunning).as(s))
 
-    SubprocessCtrl(proc, state.continuous, destroy.discrete.flatMap(eval).once)
+    io.resource(state)(_.close)(mkSubprocessCtrl(args, _)).once
   }
+
+  private def mkSubprocessCtrl(args: SubprocessArgs,
+                               state: async.mutable.Signal[SubprocessState]): Task[RawSubprocessCtrl] =
+    Task.delay {
+      val destroy = async.signal[Task[Unit]]
+      val proc = io.resource {
+        for {
+          jp <- mkJavaProcess(args)
+          _ <- state.set(Running)
+          _ <- destroy.set(destroyJavaProcess(jp) >> state.set(Destroyed))
+        } yield jp
+      } { jp =>
+        for {
+          status <- closeJavaProcess(jp)
+          _ <- state.set(Exited(status))
+          _ <- destroy.close
+        } yield ()
+      } {
+        mkSubprocess
+      }.once
+
+      SubprocessCtrl(proc, state.continuous, destroy.discrete.flatMap(eval).once)
+    }
 
   private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
     Task.delay {
       val pb = new ProcessBuilder(args.command: _*)
+      args.directory.foreach(d => pb.directory(d))
+      pb.redirectErrorStream(args.mergeOutAndErr)
       pb.start()
     }
 
