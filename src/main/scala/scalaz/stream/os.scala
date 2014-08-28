@@ -11,6 +11,17 @@ import scodec.bits.ByteVector
 import Cause._
 import Process._
 
+/*
+Alternative names:
+  ChildProc
+  ChildProcess
+  Command
+  ProcExchange
+  ProgramExchange
+  Sys(tem)Exchange
+  SystemProc
+*/
+
 object os {
   final case class Subprocess[R, W](
       stdIn: Sink[Task, W],
@@ -61,26 +72,25 @@ object os {
   }
 
   private def mkSubprocessCtrl(args: SubprocessArgs,
-                               state: async.mutable.Signal[SubprocessState]): Task[RawSubprocessCtrl] =
+      state: async.mutable.Signal[SubprocessState]): Task[RawSubprocessCtrl] =
     Task.delay {
       val destroy = async.signal[Task[Unit]]
-      val proc = io.resource {
-        for {
-          jp <- mkJavaProcess(args)
-          _ <- state.set(Running)
-          _ <- destroy.set(destroyJavaProcess(jp) >> state.set(Destroyed))
-        } yield jp
-      } { jp =>
-        for {
-          status <- closeJavaProcess(jp)
-          _ <- state.set(Exited(status))
-          _ <- destroy.close
-        } yield ()
-      } {
-        mkSubprocess
-      }.once
 
-      SubprocessCtrl(proc, state.continuous, destroy.discrete.flatMap(eval).once)
+      val acquire =
+        mkJavaProcess(args).flatMap { jp =>
+          state.set(Running) >>
+            destroy.set(destroyJavaProcess(jp) >> state.set(Destroyed)).as(jp)
+        }
+
+      def release(jp: JavaProcess) =
+        closeJavaProcess(jp)
+          .flatMap(status => state.set(Exited(status)))
+          .flatMap(_ => destroy.close)
+
+      SubprocessCtrl(
+        proc = io.resource(acquire)(release)(mkSubprocess).once,
+        state = state.continuous,
+        destroy = destroy.discrete.flatMap(eval).once)
     }
 
   private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
