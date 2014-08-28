@@ -2,8 +2,6 @@ package scalaz.stream
 
 import org.scalacheck._
 import org.scalacheck.Prop._
-import scalaz.std.list._
-import scalaz.syntax.equal._
 import scodec.bits.ByteVector
 
 object OsSpec extends Properties("OsSpec") {
@@ -18,48 +16,57 @@ object OsSpec extends Properties("OsSpec") {
     true
   }
 
+  property("lifecycle") = secure {
+    val s = os.spawnCmd("true")
+    val lifecycle = s.state.once ++ s.proc.flatMap(_ => s.state.once) ++ s.state.once
+    println(lifecycle.runLog.run.toList)
+    println(lifecycle.runLog.run.toList)
+    lifecycle.runLog.run.toList == List(NotRunning, Running, Exited(0))
+  }
+
   property("empty stdout") = secure {
-    val p = os.spawnCmd("true").proc.flatMap(_.stdOut.pipe(linesIn))
-    p.runLog.run.toList === List()
+    val p = os.spawnCmd("true").proc.flatMap(_.stdOut)
+    p.runLog.run.toList == List()
   }
 
   property("empty stderr") = secure {
     val p = os.spawnCmd("true").proc.flatMap(_.stdErr)
-    p.runLog.run == List()
+    p.runLog.run.toList == List()
   }
 
   property("exit value of 'true'") = secure {
     val s = os.spawnCmd("true")
-    (s.proc.drain ++ s.exitValue).runLog.run == List(0)
+    (s.proc.drain ++ s.state.once).runLog.run.toList == List(Exited(0))
   }
 
   property("exit value of 'false'") = secure {
     val s = os.spawnCmd("false")
-    (s.proc.drain ++ s.exitValue).runLog.run == List(1)
+    (s.proc.drain ++ s.state.once).runLog.run.toList == List(Exited(1))
   }
 
   property("echo once") = secure {
     val s = os.spawnCmd("echo", "Hello World")
       .proc.flatMap(_.stdOut.repeat.once).pipe(linesIn)
-    s.runLog.run == List("Hello World")
+    s.runLog.run.toList == List("Hello World")
   }
 
   property("echo twice") = secure {
     val s = os.spawnCmd("sh", "-c", "echo Hello; echo World")
       .proc.flatMap(_.stdOut.repeat.once).pipe(linesIn)
-    s.runLog.run == List("Hello", "World")
+    s.runLog.run.toList == List("Hello", "World")
   }
 
   property("echo twice delayed") = secure {
-    val s = os.spawnCmd("sh", "-c", "echo Hello; sleep 0.5; echo World")
-      .proc.flatMap(_.stdOut.pipe(linesIn).repeat.takeThrough(_ != "World"))
-    s.runLog.run == List("Hello", "World")
+    val s = os.spawnCmd("bash", "-c", "echo Hello; sleep 0.5; echo World")
+      .proc.flatMap(_.stdOut.repeat.take(2)).pipe(linesIn)
+    s.runLog.run.toList == List("Hello", "World")
   }
 
   property("bc") = secure {
     val s = os.spawnCmd("bc")
     val p = s.proc.drain
-    p.runLog.run == List() && s.exitValue.runLog.run == List(0)
+    p.runLog.run.toList == List() &&
+      s.state.once.runLog.run.toList == List(Exited(0))
   }
 
   property("bc terminates") = secure {
@@ -71,7 +78,8 @@ object OsSpec extends Properties("OsSpec") {
     val quit = Process("quit\n").pipe(linesOut).toSource
     val s = os.spawnCmd("bc")
     val p = s.proc.flatMap(quit to _.stdIn)
-    p.runLog.run == List(()) && s.exitValue.runLog.run == List(0)
+    p.runLog.run.toList == List(()) &&
+      s.state.once.runLog.run.toList == List(Exited(0))
   }
 
   property("bc add once") = secure {
@@ -83,7 +91,8 @@ object OsSpec extends Properties("OsSpec") {
         sp.stdOut.repeat.once ++
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
-    p.runLog.run == List("5") && s.exitValue.runLog.run == List(0)
+    p.runLog.run.toList == List("5") &&
+      s.state.once.runLog.run.toList == List(Exited(0))
   }
 
   property("bc syntax error") = secure {
@@ -94,7 +103,7 @@ object OsSpec extends Properties("OsSpec") {
         sp.stdErr.repeat.once
     }.pipe(linesIn)
     p.runLog.run.forall(_.contains("syntax error")) &&
-      s.exitValue.runLog.run == List(0)
+      s.state.once.runLog.run.toList == List(Exited(0))
   }
 
   property("bc add twice, 1 pass") = secure {
@@ -106,8 +115,8 @@ object OsSpec extends Properties("OsSpec") {
         sp.stdOut.repeat.once ++
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
-    p.runLog.run.toList === List("5", "8") &&
-      s.exitValue.runLog.run.toList === List(0)
+    p.runLog.run.toList == List("5", "8") &&
+      s.state.once.runLog.run.toList == List(Exited(0))
   }
 
   property("bc add twice, 2 pass") = secure {
@@ -122,7 +131,7 @@ object OsSpec extends Properties("OsSpec") {
         sp.stdOut.repeat.once ++
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
-    p.runLog.run.toList === List("5", "8")
+    p.runLog.run.toList == List("5", "8")
   }
 
   property("yes terminates") = secure {
@@ -132,6 +141,21 @@ object OsSpec extends Properties("OsSpec") {
 
   property("yes output") = secure {
     val p = os.spawnCmd("yes").proc.flatMap(_.stdOut.repeat.once).pipe(linesIn).once
-    p.runLog.run.toList === List("y")
+    p.runLog.run.toList == List("y")
+  }
+
+  property("sleep") = secure {
+    val start = System.currentTimeMillis()
+    os.spawnCmd("sleep", "0.1").proc.run.run
+    val end = System.currentTimeMillis()
+    end - start >= 100
+  }
+
+  property("sleep terminated") = secure {
+    val start = System.currentTimeMillis()
+    val s = os.spawnCmd("sleep", "0.1")
+    s.proc.flatMap(_ => s.destroy).run.run
+    val end = System.currentTimeMillis()
+    end - start < 100
   }
 }

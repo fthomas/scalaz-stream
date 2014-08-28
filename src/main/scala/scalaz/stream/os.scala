@@ -21,6 +21,11 @@ TODO:
  - test that std streams and the process are closed on completion
 
  - complete SubprocessArgs
+
+ - Do not pollute the package scope with our types
+
+ - the state Signal is never closed. Problem? Yes!
+   spawn: Process[Task, SubprocessCtrl]
 */
 
 final case class Subprocess[R, W](
@@ -41,9 +46,16 @@ final case class Subprocess[R, W](
     Exchange(stdOut merge stdErr, stdIn)
 }
 
+sealed trait SubprocessState
+case object NotRunning extends SubprocessState
+case object Running extends SubprocessState
+case object Destroyed extends SubprocessState
+case class Exited(status: Int) extends SubprocessState
+
 final case class SubprocessCtrl[R, W](
   proc: Process[Task, Subprocess[R, W]],
-  exitValue: Process[Task, Int])
+  state: Process[Task, SubprocessState],
+  destroy: Process[Task, Unit])
 
 final case class SubprocessArgs(
   command: Seq[String])
@@ -53,16 +65,27 @@ object os {
     spawn(SubprocessArgs(command))
 
   def spawn(args: SubprocessArgs): SubprocessCtrl[ByteVector, ByteVector] = {
-    val exitSignal = async.signal[Int]
+    val state = async.signal[SubprocessState]
+    val destroy = async.signal[Task[Unit]]
+    state.set(NotRunning).run
+
     val proc = io.resource {
-      mkJavaProcess(args)
-    } {
-      closeJavaProcess(_).flatMap(exitSignal.set)
+      for {
+        jp <- mkJavaProcess(args)
+        _ <- state.set(Running)
+        _ <- destroy.set(destroyJavaProcess(jp) >> state.set(Destroyed))
+      } yield jp
+    } { jp =>
+      for {
+        status <- closeJavaProcess(jp)
+        _ <- state.set(Exited(status))
+        _ <- destroy.close
+      } yield ()
     } {
       mkSubprocess
     }.once
 
-    SubprocessCtrl(proc, exitSignal.discrete.once)
+    SubprocessCtrl(proc, state.continuous, destroy.discrete.flatMap(eval).once)
   }
 
   private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
