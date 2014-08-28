@@ -22,45 +22,43 @@ TODO:
 
  - complete SubprocessArgs
 
- - Do not pollute the package scope with our types
-
  - the state Signal is never closed. Problem? Yes!
    spawn: Process[Task, SubprocessCtrl]
 */
 
-final case class Subprocess[R, W](
-    stdIn: Sink[Task, W],
-    stdOut: Process[Task, R],
-    stdErr: Process[Task, R]) {
-
-  def toExchange: Exchange[R \/ R, W] =
-    Exchange(stdOut.map(right) merge stdErr.map(left), stdIn)
-
-  def toStdOutExchange: Exchange[R, W] =
-    Exchange(stdOut, stdIn)
-
-  def toStdErrExchange: Exchange[R, W] =
-    Exchange(stdErr, stdIn)
-
-  def toMergedExchange: Exchange[R, W] =
-    Exchange(stdOut merge stdErr, stdIn)
-}
-
-sealed trait SubprocessState
-case object NotRunning extends SubprocessState
-case object Running extends SubprocessState
-case object Destroyed extends SubprocessState
-case class Exited(status: Int) extends SubprocessState
-
-final case class SubprocessCtrl[R, W](
-  proc: Process[Task, Subprocess[R, W]],
-  state: Process[Task, SubprocessState],
-  destroy: Process[Task, Unit])
-
-final case class SubprocessArgs(
-  command: Seq[String])
-
 object os {
+  final case class Subprocess[R, W](
+      stdIn: Sink[Task, W],
+      stdOut: Process[Task, R],
+      stdErr: Process[Task, R]) {
+
+    def toExchange: Exchange[R \/ R, W] =
+      Exchange(stdOut.map(right) merge stdErr.map(left), stdIn)
+
+    def toStdOutExchange: Exchange[R, W] =
+      Exchange(stdOut, stdIn)
+
+    def toStdErrExchange: Exchange[R, W] =
+      Exchange(stdErr, stdIn)
+
+    def toMergedExchange: Exchange[R, W] =
+      Exchange(stdOut merge stdErr, stdIn)
+  }
+
+  sealed trait SubprocessState
+  case object NotRunning extends SubprocessState
+  case object Running extends SubprocessState
+  case object Destroyed extends SubprocessState
+  case class Exited(status: Int) extends SubprocessState
+
+  final case class SubprocessCtrl[R, W](
+    proc: Process[Task, Subprocess[R, W]],
+    state: Process[Task, SubprocessState],
+    destroy: Process[Task, Unit])
+
+  final case class SubprocessArgs(
+    command: Seq[String])
+
   def spawnCmd(command: String*): SubprocessCtrl[ByteVector, ByteVector] =
     spawn(SubprocessArgs(command))
 
