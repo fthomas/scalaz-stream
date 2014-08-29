@@ -127,30 +127,28 @@ object OsSpec extends Properties("OsSpec") {
     p.runLog.run.toList == List("5", "8")
   }
 
-  /*
   property("yes terminates") = secure {
-    spawnCmd("yes").proc.run.run
+    execCmd("yes").flatMap(_.proc).run.run
     true
   }
 
   property("yes output") = secure {
-    val p = spawnCmd("yes").proc.flatMap(_.stdOut.repeat.once).pipe(linesIn).once
-    p.runLog.run.toList == List("y")
+    val p = execCmd("yes").flatMap(_.proc)
+      .flatMap(_.stdOut.repeat.once).pipe(linesIn).take(2)
+    p.runLog.run.toList == List("y", "y")
   }
 
   property("sleep") = secure {
     val start = System.currentTimeMillis()
-    spawnCmd("sleep", "0.1").proc.run.run
+    execCmd("sleep", "0.1").flatMap(_.proc).run.run
     val end = System.currentTimeMillis()
     end - start >= 100
   }
 
   property("sleep terminated") = secure {
     val start = System.currentTimeMillis()
-    val s = spawnCmd("sleep", "0.1")
-    s.proc.flatMap(_ => s.destroy).run.run
+    execCmd("sleep", "2").flatMap(s => s.proc yip s.destroy).run.run
     val end = System.currentTimeMillis()
-    end - start < 100
+    end - start < 500
   }
-  */
 }

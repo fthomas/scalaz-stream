@@ -19,6 +19,8 @@ Alternative names:
   Command
   ProcExchange
   ProgramExchange
+  Program
+  Subprocess
   Sys(tem)Exchange
   SystemProc
 */
@@ -55,7 +57,7 @@ object os {
 
   final case class SubprocessArgs(
     command: Seq[String],
-    // TODO: environment
+    environment: Option[Map[String, String]] = None,
     directory: Option[File] = None,
     mergeOutAndErr: Boolean = false)
 
@@ -97,7 +99,13 @@ object os {
   private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
     Task.delay {
       val pb = new ProcessBuilder(args.command: _*)
-      args.directory.foreach(d => pb.directory(d))
+      args.environment.foreach { env =>
+        import scala.collection.JavaConversions._
+        val mutableEnv = pb.environment()
+        mutableEnv.clear()
+        mutableEnv.putAll(env)
+      }
+      args.directory.foreach(dir => pb.directory(dir))
       pb.redirectErrorStream(args.mergeOutAndErr)
       pb.start()
     }
