@@ -88,10 +88,9 @@ object OsSpec extends Properties("OsSpec") {
     val quit = Process("quit\n").pipe(linesOut).toSource
     val p = execCmd("bc").flatMap(_.proc).flatMap { sp =>
       add.to(sp.stdIn).drain ++
-      sp.stdOut.repeat.once ++
-      quit.to(sp.stdIn).drain
+        sp.stdOut.repeat.once ++
+        quit.to(sp.stdIn).drain
     }.pipe(linesIn)
-
     p.runLog.run.toList == List("5")
   }
 
@@ -103,26 +102,22 @@ object OsSpec extends Properties("OsSpec") {
     p.runLog.run.forall(_.contains("syntax error"))
   }
 
-  /*
   property("bc add twice, 1 pass") = secure {
     val add = Process("2 + 3\n", "3 + 5\n").pipe(linesOut).toSource
     val quit = Process("quit\n").pipe(linesOut).toSource
-    val s = spawnCmd("bc")
-    val p = s.proc.flatMap { sp =>
+    val p = execCmd("bc").flatMap(_.proc).flatMap { sp =>
       add.to(sp.stdIn).drain ++
         sp.stdOut.repeat.once ++
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
-    p.runLog.run.toList == List("5", "8") &&
-      s.state.once.runLog.run.toList == List(Exited(0))
+    p.runLog.run.toList == List("5", "8")
   }
 
   property("bc add twice, 2 pass") = secure {
     val add1 = Process("2 + 3\n").pipe(linesOut).toSource
     val add2 = Process("3 + 5\n").pipe(linesOut).toSource
     val quit = Process("quit\n").pipe(linesOut).toSource
-    val s = spawnCmd("bc")
-    val p = s.proc.flatMap { sp =>
+    val p = execCmd("bc").flatMap(_.proc).flatMap { sp =>
       add1.to(sp.stdIn).drain ++
         sp.stdOut.repeat.once ++
         add2.to(sp.stdIn).drain ++
@@ -132,6 +127,7 @@ object OsSpec extends Properties("OsSpec") {
     p.runLog.run.toList == List("5", "8")
   }
 
+  /*
   property("yes terminates") = secure {
     spawnCmd("yes").proc.run.run
     true

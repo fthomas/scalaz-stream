@@ -8,6 +8,7 @@ import scalaz.concurrent.Task
 import scalaz.syntax.bind._
 import scodec.bits.ByteVector
 
+import async.mutable.Signal
 import Cause._
 import Process._
 
@@ -72,14 +73,14 @@ object os {
   }
 
   private def mkSubprocessCtrl(args: SubprocessArgs,
-      state: async.mutable.Signal[SubprocessState]): Task[RawSubprocessCtrl] =
+      state: Signal[SubprocessState]): Task[RawSubprocessCtrl] =
     Task.delay {
       val destroy = async.signal[Task[Unit]]
 
       val acquire =
         mkJavaProcess(args).flatMap { jp =>
-          state.set(Running) >>
-            destroy.set(destroyJavaProcess(jp) >> state.set(Destroyed)).as(jp)
+          val destroyAction = destroyJavaProcess(jp) >> state.set(Destroyed)
+          state.set(Running) >> destroy.set(destroyAction) >| jp
         }
 
       def release(jp: JavaProcess) =
