@@ -84,7 +84,7 @@ object process1 {
         if (f(last, i)) go(acc :+ i, i)
         else emit(acc) fby go(Vector(i), i)
       }
-    await1[I].flatMap(i => go(Vector(i), i))
+    receive1(i => go(Vector(i), i))
   }
 
   /**
@@ -112,11 +112,11 @@ object process1 {
    * if it has consumed at least one input element.
    */
   def drainLeading[A, B](p: Process1[A, B]): Process1[A, B] =
-    await1[A].flatMap(a => feed1(a)(p))
+    receive1(a => feed1(a)(p))
 
   /** Skips the first `n` elements of the input, then passes through the rest. */
   def drop[I](n: Int): Process1[I, I] =
-    if (n <= 0) id[I]
+    if (n <= 0) id
     else skip fby drop(n - 1)
 
   /** Emits all but the last element of the input. */
@@ -129,7 +129,7 @@ object process1 {
       receive1Or[I,I](if (p(prev)) halt else emit(prev)) { i =>
         emit(prev) fby go(i)
       }
-    await1[I].flatMap(go)
+    receive1(go)
   }
 
   /**
@@ -137,7 +137,7 @@ object process1 {
    * then passes through the remaining inputs.
    */
   def dropWhile[I](f: I => Boolean): Process1[I, I] =
-    await1[I] flatMap (i => if (f(i)) dropWhile(f) else emit(i) fby id)
+    receive1(i => if (f(i)) dropWhile(f) else emit(i) fby id)
 
   /** Feed a single input to a `Process1`. */
   def feed1[I, O](i: I)(p: Process1[I, O]): Process1[I, O] =
@@ -168,7 +168,7 @@ object process1 {
    * element and terminate
    */
   def find[I](f: I => Boolean): Process1[I, I] =
-    await1[I] flatMap (i => if (f(i)) emit(i) else find(f))
+    receive1(i => if (f(i)) emit(i) else find(f))
 
   /**
    * Halts with `true` as soon as a matching element is received.
@@ -256,7 +256,7 @@ object process1 {
   /** Skip all but the last element of the input. */
   def last[I]: Process1[I, I] = {
     def go(prev: I): Process1[I, I] = receive1Or[I,I](emit(prev))(go)
-    await1[I].flatMap(go)
+    receive1(go)
   }
 
   /**
@@ -269,7 +269,7 @@ object process1 {
 
   /** Transform the input using the given function, `f`. */
   def lift[I, O](f: I => O): Process1[I, O] =
-    id[I] map f
+    id map f
 
   /**
    * Transform `p` to operate on the left hand side of an `\/`, passing
@@ -438,7 +438,7 @@ object process1 {
    * It will always emit `z`, even when the Process of `A` is empty
    */
   def scan[A, B](z: B)(f: (B, A) => B): Process1[A, B] =
-    emit(z) fby await1[A].flatMap(a => scan(f(z, a))(f))
+    emit(z) fby receive1(a => scan(f(z, a))(f))
 
   /**
    * Like `scan` but uses Monoid for associative operation
@@ -461,7 +461,7 @@ object process1 {
    * }}}
    */
   def scan1[A](f: (A, A) => A): Process1[A, A] =
-    await1[A].flatMap(a => scan(a)(f))
+    receive1(a => scan(a)(f))
 
   /** Like `scan1` but uses Monoid `M` for associative operation. */
   def scan1Monoid[A](implicit M: Monoid[A]): Process1[A, A] =
@@ -486,7 +486,21 @@ object process1 {
 
   /** Reads a single element of the input, emits nothing, then halts. */
   def skip: Process1[Any, Nothing] =
-    await1[Any].flatMap(_ => halt)
+    receive1(_ => halt)
+
+  /**
+   * Groups inputs in fixed size chunks by passing a "sliding window"
+   * of size `n` over them. If the input contains less than or equal to
+   * `n` elements, only one chunk of this size will be emitted.
+   *
+   * @throws IllegalArgumentException if `n` <= 0
+   */
+  def sliding[I](n: Int): Process1[I, Vector[I]] = {
+    require(n > 0, "window size must be > 0, was: " + n)
+    def go(window: Vector[I]): Process1[I, Vector[I]] =
+      emit(window) fby receive1(i => go(window.tail :+ i))
+    chunk(n).once.flatMap(go)
+  }
 
   /**
    * Break the input into chunks where the delimiter matches the predicate.
@@ -525,7 +539,7 @@ object process1 {
          if (cur == last) go(acc :+ i, cur)
          else emit(acc) fby go(Vector(i), cur)
       }
-    await1[I].flatMap(i => go(Vector(i), f(i)))
+    receive1(i => go(Vector(i), f(i)))
   }
 
   /** Remove any `None` inputs. */
@@ -543,11 +557,11 @@ object process1 {
 
   /** Passes through elements of the input as long as the predicate is true, then halts. */
   def takeWhile[I](f: I => Boolean): Process1[I, I] =
-    await1[I] flatMap (i => if (f(i)) emit(i) fby takeWhile(f) else halt)
+    receive1 (i => if (f(i)) emit(i) fby takeWhile(f) else halt)
 
   /** Like `takeWhile`, but emits the first value which tests false. */
   def takeThrough[I](f: I => Boolean): Process1[I, I] =
-    await1[I] flatMap (i => if (f(i)) emit(i) fby takeThrough(f) else emit(i))
+    receive1 (i => if (f(i)) emit(i) fby takeThrough(f) else emit(i))
 
   /** Wraps all inputs in `Some`, then outputs a single `None` before halting. */
   def terminated[A]: Process1[A, Option[A]] =
@@ -605,7 +619,7 @@ object process1 {
 
   /** Zips the input with state that begins with `z` and is updated by `next`. */
   def zipWithState[A,B](z: B)(next: (A, B) => B): Process1[A,(A,B)] =
-    await1[A].flatMap(a => emit((a, z)) fby zipWithState(next(a, z))(next))
+    receive1(a => emit((a, z)) fby zipWithState(next(a, z))(next))
 
 
   object Await1 {
@@ -823,6 +837,10 @@ private[stream] trait Process1Ops[+F[_],+O] {
   /** Alias for `this |> [[process1.shiftRight]](head)` */
   def shiftRight[O2 >: O](head: O2*): Process[F,O2] =
     this |> process1.shiftRight(head: _*)
+
+  /** Alias for `this |> [[process1.sliding]](n)`. */
+  def sliding(n: Int): Process[F,Vector[O]] =
+    this |> process1.sliding(n)
 
   /** Alias for `this |> [[process1.split]](f)` */
   def split(f: O => Boolean): Process[F,Vector[O]] =
