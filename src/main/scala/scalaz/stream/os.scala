@@ -65,10 +65,10 @@ object os {
   type RawSubprocess = Subprocess[ByteVector, ByteVector]
   type RawSubprocessCtrl = SubprocessCtrl[ByteVector, ByteVector]
 
-  def execCmd(command: String*): Process[Task, RawSubprocessCtrl] =
-    exec(SubprocessArgs(command))
+  def spawnCmd(command: String*): Process[Task, RawSubprocessCtrl] =
+    spawn(SubprocessArgs(command))
 
-  def exec(args: SubprocessArgs): Process[Task, RawSubprocessCtrl] = {
+  def spawn(args: SubprocessArgs): Process[Task, RawSubprocessCtrl] = {
     val state = Task.delay(async.signal[SubprocessState])
       .flatMap(s => s.set(NotRunning).as(s))
 
