@@ -69,9 +69,10 @@ object os {
     spawn(SubprocessArgs(command))
 
   def spawn(args: SubprocessArgs): Process[Task, RawSubprocessCtrl] = {
-    val state = Task.delay(async.signal[SubprocessState])
-      .flatMap(s => s.set(NotRunning).as(s))
-
+    val state = Task.delay(async.signal[SubprocessState]).map { s =>
+      s.set(NotRunning).run
+      s
+    }
     io.resource(state)(_.close)(mkSubprocessCtrl(args, _)).once
   }
 
@@ -81,15 +82,18 @@ object os {
       val destroy = async.signal[Task[Unit]]
 
       val acquire =
-        mkJavaProcess(args).flatMap { jp =>
+        mkJavaProcess(args).map { jp =>
+          state.set(Running).run
           val destroyAction = destroyJavaProcess(jp) >> state.set(Destroyed)
-          state.set(Running) >> destroy.set(destroyAction) >| jp
+          destroy.set(destroyAction).run
+          jp
         }
 
       def release(jp: JavaProcess) =
-        closeJavaProcess(jp)
-          .flatMap(status => state.set(Exited(status)))
-          .flatMap(_ => destroy.close)
+        closeJavaProcess(jp).map { status =>
+          state.set(Exited(status)).run
+          destroy.close.run
+        }
 
       SubprocessCtrl(
         proc = io.resource(acquire)(release)(mkSubprocess).once,

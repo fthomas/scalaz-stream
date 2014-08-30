@@ -2,6 +2,7 @@ package scalaz.stream
 
 import org.scalacheck._
 import org.scalacheck.Prop._
+import scalaz.concurrent.Task
 import scodec.bits.ByteVector
 
 import os._
@@ -125,6 +126,21 @@ object OsSpec extends Properties("OsSpec") {
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
     p.runLog.run.toList == List("5", "8")
+  }
+
+  property("bc nat") = secure {
+    val quit = Process("quit\n").pipe(linesOut).toSource
+    val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
+      def plus1(i: Int): Process[Task, Int] =
+        Process(s"$i + 1\n").pipe(linesOut).liftIO.to(sp.stdIn).drain ++
+          sp.stdOut.repeat.once.pipe(linesIn).map(_.toInt)
+
+      def nat(start: Int): Process[Task, Int] =
+        plus1(start).flatMap(n => Process.emit(n) ++ nat(n))
+
+      nat(0) onComplete quit.to(sp.stdIn).drain
+    }
+    p.take(50).runLog.run.toList == List.range(1, 51)
   }
 
   property("yes terminates") = secure {
