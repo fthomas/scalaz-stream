@@ -77,7 +77,7 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("bc quit") = secure {
-    val quit = Process("quit\n").pipe(linesOut).toSource
+    val quit = Process("quit\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap { s =>
       s.proc.flatMap(quit to _.stdIn) ++ s.state.once
     }
@@ -85,8 +85,8 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("bc add once") = secure {
-    val add = Process("2 + 3\n").pipe(linesOut).toSource
-    val quit = Process("quit\n").pipe(linesOut).toSource
+    val add = Process("2 + 3\n").pipe(linesOut).liftIO
+    val quit = Process("quit\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
       add.to(sp.stdIn).drain ++
         sp.stdOut.repeat.once ++
@@ -96,7 +96,7 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("bc syntax error") = secure {
-    val calc = Process("2 +\n").pipe(linesOut).toSource
+    val calc = Process("2 +\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
       calc.to(sp.stdIn).drain ++ sp.stdErr.repeat.once
     }.pipe(linesIn)
@@ -104,8 +104,8 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("bc add twice, 1 pass") = secure {
-    val add = Process("2 + 3\n", "3 + 5\n").pipe(linesOut).toSource
-    val quit = Process("quit\n").pipe(linesOut).toSource
+    val add = Process("2 + 3\n", "3 + 5\n").pipe(linesOut).liftIO
+    val quit = Process("quit\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
       add.to(sp.stdIn).drain ++
         sp.stdOut.repeat.once ++
@@ -115,9 +115,9 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("bc add twice, 2 pass") = secure {
-    val add1 = Process("2 + 3\n").pipe(linesOut).toSource
-    val add2 = Process("3 + 5\n").pipe(linesOut).toSource
-    val quit = Process("quit\n").pipe(linesOut).toSource
+    val add1 = Process("2 + 3\n").pipe(linesOut).liftIO
+    val add2 = Process("3 + 5\n").pipe(linesOut).liftIO
+    val quit = Process("quit\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
       add1.to(sp.stdIn).drain ++
         sp.stdOut.repeat.once ++
@@ -129,7 +129,7 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("bc nat") = secure {
-    val quit = Process("quit\n").pipe(linesOut).toSource
+    val quit = Process("quit\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
       def plus1(i: Int): Process[Task, Int] =
         Process(s"$i + 1\n").pipe(linesOut).liftIO.to(sp.stdIn).drain ++
