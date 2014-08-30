@@ -151,4 +151,13 @@ object OsSpec extends Properties("OsSpec") {
     val end = System.currentTimeMillis()
     end - start < 500
   }
+
+  property("terminated lifecycle") = secure {
+    val p = execCmd("yes").flatMap { s =>
+      s.state.once ++ s.proc.flatMap(_ => s.state.once).interleave(s.destroy.drain ++ s.state.once)
+    }
+    val expected = List(NotRunning, Running, Destroyed)
+    p.runLog.run.toList == expected &&
+      p.runLog.run.toList == expected
+  }
 }

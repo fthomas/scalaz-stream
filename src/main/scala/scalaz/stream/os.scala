@@ -17,6 +17,7 @@ Alternative names:
   ChildProc
   ChildProcess
   Command
+  Console(Exchange)
   ProcExchange
   ProgramExchange
   Program
@@ -100,10 +101,9 @@ object os {
     Task.delay {
       val pb = new ProcessBuilder(args.command: _*)
       args.environment.foreach { env =>
-        import scala.collection.JavaConversions._
         val mutableEnv = pb.environment()
         mutableEnv.clear()
-        mutableEnv.putAll(env)
+        mutableEnv.putAll(scala.collection.JavaConversions.mapAsJavaMap(env))
       }
       args.directory.foreach(dir => pb.directory(dir))
       pb.redirectErrorStream(args.mergeOutAndErr)
