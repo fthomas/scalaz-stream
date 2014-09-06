@@ -30,18 +30,19 @@ object compress {
       }
 
     def go(deflater: Deflater, buf: Array[Byte]): Process1[ByteVector,ByteVector] =
-      await1[ByteVector].flatMap { bytes =>
+      receive1 { bytes =>
         deflater.setInput(bytes.toArray)
         val chunks = collect(deflater, buf, Deflater.NO_FLUSH)
-        emitSeq(chunks) fby go(deflater, buf) orElse {
-          emitSeqLazy(collect(deflater, buf, Deflater.FULL_FLUSH))
-        }
+        emitAll(chunks) fby go(deflater, buf)
       }
 
-    suspend1 {
+    def flush(deflater: Deflater, buf: Array[Byte]): Process0[ByteVector] =
+      emitAll(collect(deflater, buf, Deflater.FULL_FLUSH))
+
+    suspend {
       val deflater = new Deflater(level, nowrap)
       val buf = Array.ofDim[Byte](bufferSize)
-      go(deflater, buf)
+      drainLeading(go(deflater, buf) onComplete flush(deflater, buf))
     }
   }
 
@@ -64,13 +65,13 @@ object compress {
       }
 
     def go(inflater: Inflater, buf: Array[Byte]): Process1[ByteVector,ByteVector] =
-      await1[ByteVector].flatMap { bytes =>
+      receive1 { bytes =>
         inflater.setInput(bytes.toArray)
         val chunks = collect(inflater, buf, Vector.empty)
-        emitSeq(chunks) fby go(inflater, buf)
+        emitAll(chunks) fby go(inflater, buf)
       }
 
-    suspend1 {
+    suspend {
       val inflater = new Inflater(nowrap)
       val buf = Array.ofDim[Byte](bufferSize)
       go(inflater, buf)

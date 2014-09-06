@@ -1,7 +1,6 @@
 package scalaz.stream
 
 import scalaz.concurrent.{Strategy, Task}
-import scalaz.stream.Process._
 
 
 package object merge {
@@ -24,9 +23,8 @@ package object merge {
    * cache, it just tries to be as much fair as possible when processes provide their `A` on almost the same speed.
    *
    */
-  def mergeN[A](source: Process[Task, Process[Task, A]])
-    (implicit S: Strategy = Strategy.DefaultStrategy): Process[Task, A] =
-    mergeN(0)(source)(S)
+  def mergeN[A](source: Process[Task, Process[Task, A]])(implicit S: Strategy): Process[Task, A] =
+    scalaz.stream.nondeterminism.njoin(0, 0)(source)(S)
 
   /**
    * MergeN variant, that allows to specify maximum of open `source` processes.
@@ -40,11 +38,8 @@ package object merge {
    * @param maxOpen   Max number of open (running) processes at a time
    * @param source    source of processes to merge
    */
-  def mergeN[A](maxOpen: Int)(source: Process[Task, Process[Task, A]])
-    (implicit S: Strategy = Strategy.DefaultStrategy): Process[Task, A] =
-    await(Task.delay(Junction(JunctionStrategies.mergeN[A](maxOpen), source)(S)))({
-      case junction => junction.downstreamO onComplete eval_(junction.downstreamClose(End))
-    })
+  def mergeN[A](maxOpen: Int)(source: Process[Task, Process[Task, A]])(implicit S: Strategy): Process[Task, A] =
+    scalaz.stream.nondeterminism.njoin(maxOpen, maxOpen)(source)(S)
 
 
 }

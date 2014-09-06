@@ -2,17 +2,20 @@ organization := "org.scalaz.stream"
 
 name := "scalaz-stream"
 
-version := "snapshot-0.4"
+version := "snapshot-0.5"
 
-scalaVersion := "2.10.3"
+scalaVersion := "2.10.4"
+
+crossScalaVersions := Seq("2.10.4", "2.11.2")
 
 scalacOptions ++= Seq(
   "-feature",
+  "-deprecation",
   "-language:implicitConversions",
   "-language:higherKinds",
   "-language:existentials",
   "-language:postfixOps",
-  "-Xfatal-warnings",
+  // "-Xfatal-warnings", // this makes cross compilation impossible from a single source
   "-Yno-adapted-args"
 )
 
@@ -26,9 +29,9 @@ resolvers ++= Seq(Resolver.sonatypeRepo("releases"), Resolver.sonatypeRepo("snap
 libraryDependencies ++= Seq(
   "org.scalaz" %% "scalaz-core" % "7.0.6",
   "org.scalaz" %% "scalaz-concurrent" % "7.0.6",
-  "org.typelevel" %% "scodec-bits" % "1.0.0-RC2",
+  "org.typelevel" %% "scodec-bits" % "1.0.3",
   "org.scalaz" %% "scalaz-scalacheck-binding" % "7.0.6" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.10.1" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.11.5" % "test"
   "com.github.axel22" %% "scalameter" % "0.4" % "test"
 )
 
@@ -58,4 +61,10 @@ OsgiKeys.importPackage := Seq(
   "*"
 )
 
-ScctPlugin.instrumentSettings
+parallelExecution in Test := false
+
+autoAPIMappings := true
+
+apiURL := Some(url(s"http://docs.typelevel.org/api/scalaz-stream/stable/${version.value}/doc/"))
+
+initialCommands := "import scalaz.stream._"

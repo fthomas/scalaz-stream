@@ -27,10 +27,13 @@ object hash {
 
   private def messageDigest(algorithm: String): Process1[ByteVector,ByteVector] = {
     def go(digest: MessageDigest): Process1[ByteVector,ByteVector] =
-      await1[ByteVector].flatMap { bytes =>
+      receive1 { bytes =>
         digest.update(bytes.toArray)
-        go(digest) orElse emitLazy(ByteVector.view(digest.digest()))
+        go(digest)
       }
-    suspend1(go(MessageDigest.getInstance(algorithm)))
+    suspend {
+      val digest = MessageDigest.getInstance(algorithm)
+      drainLeading(go(digest) onComplete emit(ByteVector.view(digest.digest())))
+    }
   }
 }

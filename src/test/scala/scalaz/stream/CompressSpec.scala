@@ -1,11 +1,14 @@
 package scalaz.stream
 
 import org.scalacheck._
-import Prop._
+import org.scalacheck.Prop._
+import scalaz.-\/
 import scodec.bits.ByteVector
 
 import Process._
 import compress._
+
+import TestInstances._
 
 object CompressSpec extends Properties("compress") {
   def getBytes(s: String): ByteVector =
@@ -22,33 +25,30 @@ object CompressSpec extends Properties("compress") {
     Process[ByteVector]().pipe(inflate()).toList.isEmpty
   }
 
-  property("deflate |> inflate ~= id") = forAll { (ls: List[String]) =>
-    val input = ls.map(getBytes)
-    val inflated = emitSeq(input).pipe(deflate()).pipe(inflate()).toList
+  property("deflate |> inflate ~= id") = forAll { (input: List[ByteVector]) =>
+    val inflated = emitAll(input).pipe(deflate()).pipe(inflate()).toList
 
     foldBytes(input) == foldBytes(inflated)
   }
 
-  property("(de|in)flate") = forAll { (ls: List[String]) =>
-    val input = ls.map(getBytes)
-    val deflated = emitSeq(input).pipe(deflate()).toList
-    val inflated = emitSeq(deflated).pipe(inflate()).toList
+  property("(de|in)flate") = forAll { (input: List[ByteVector]) =>
+    val deflated = emitAll(input).pipe(deflate()).toList
+    val inflated = emitAll(deflated).pipe(inflate()).toList
 
     foldBytes(input) == foldBytes(inflated)
   }
 
-  property("(de|in)flate with small buffers") = forAll { (ls: List[String]) =>
-    val input = ls.map(getBytes)
-    val deflated = emitSeq(input).pipe(deflate(0, false, 32)).toList
-    val inflated = emitSeq(deflated).pipe(inflate(false, 32)).toList
+  property("(de|in)flate with small buffers") = forAll { (input: List[ByteVector]) =>
+    val deflated = emitAll(input).pipe(deflate(0, false, 32)).toList
+    val inflated = emitAll(deflated).pipe(inflate(false, 32)).toList
 
     foldBytes(input) == foldBytes(inflated)
   }
 
-  property("(de|in)flate with single byte inputs") = forAll { (s: String) =>
-    val input = getBytes(s).grouped(1).toList
-    val deflated = emitSeq(input).pipe(deflate()).toList.flatMap(_.grouped(1))
-    val inflated = emitSeq(deflated).pipe(inflate()).toList
+  property("(de|in)flate with single byte inputs") = forAll { (bs: ByteVector) =>
+    val input = bs.grouped(1).toList
+    val deflated = emitAll(input).pipe(deflate()).toList.flatMap(_.grouped(1))
+    val inflated = emitAll(deflated).pipe(inflate()).toList
 
     foldBytes(input) == foldBytes(inflated)
   }
@@ -66,9 +66,10 @@ object CompressSpec extends Properties("compress") {
   }
 
   property("inflate.uncompressed input") = secure {
-    emit(getBytes("Hello")).pipe(inflate()) match {
-      case Halt(ex: java.util.zip.DataFormatException) => true
+    emit(getBytes("Hello")).pipe(inflate()).attempt().toList match {
+      case List(-\/(ex: java.util.zip.DataFormatException)) => true
       case _ => false
     }
   }
 }
+
