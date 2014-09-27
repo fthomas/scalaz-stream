@@ -136,7 +136,7 @@ object OsSpec extends Properties("OsSpec") {
           sp.stdOut.repeat.once.pipe(linesIn).map(_.toInt)
 
       def nat(start: Int): Process[Task, Int] =
-        plus1(start).flatMap(n => Process.emit(n) ++ nat(n))
+        plus1(start).flatMap(n => Process(n) ++ nat(n))
 
       nat(0) onComplete quit.to(sp.stdIn).drain
     }
@@ -144,9 +144,23 @@ object OsSpec extends Properties("OsSpec") {
   }
 
   property("sum seq") = secure {
-    val seq = spawnCmd("seq", "10000").flatMap(_.proc).flatMap(_.stdOut.repeat)
-      .pipe(linesIn).map(_.toInt)
+    val seq = spawnCmd("seq", "10000").flatMap(_.proc)
+      .flatMap(_.stdOut.repeat).pipe(linesIn).map(_.toInt)
     seq.take(100).sum.runLog.run.toList == List(5050)
+  }
+
+  property("seq and bc") = secure {
+    val quit = Process("quit\n").pipe(linesOut).liftIO
+    val seq = spawnCmd("seq", "0", "10000").flatMap(_.proc)
+      .flatMap(_.stdOut.repeat).pipe(linesIn)
+    val prefixSums = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
+      def add(i: String) =
+        Process(s"x = x + $i\n", "x\n").pipe(linesOut).liftIO.to(sp.stdIn).drain ++
+          sp.stdOut.repeat.once.pipe(linesIn)
+      seq.flatMap(add).onComplete(quit.to(sp.stdIn).drain)
+    }.map(_.toInt)
+
+    prefixSums.take(101).runLog.run.toList == List.range(1, 101).scan(0)(_ + _)
   }
 
   property("yes terminates") = secure {
