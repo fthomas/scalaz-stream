@@ -114,6 +114,24 @@ object process1 {
   def drainLeading[A, B](p: Process1[A, B]): Process1[A, B] =
     receive1(a => feed1(a)(p))
 
+  /** Emits only elements that are distinct from their immediate predecessors. */
+  def distinctConsecutive[A: Equal]: Process1[A, A] =
+    distinctConsecutiveBy(identity)
+
+  /**
+   * Emits only elements that are distinct from their immediate predecessors
+   * according to `f`.
+   */
+  def distinctConsecutiveBy[A, B: Equal](f: A => B): Process1[A, A] = {
+    def go(prev: B): Process1[A, A] =
+      receive1 { a =>
+        val b = f(a)
+        if (b === prev) go(prev)
+        else emit(a) fby go(b)
+      }
+    receive1(a => emit(a) fby go(f(a)))
+  }
+
   /** Skips the first `n` elements of the input, then passes through the rest. */
   def drop[I](n: Int): Process1[I, I] =
     if (n <= 0) id
@@ -130,6 +148,14 @@ object process1 {
         emit(prev) fby go(i)
       }
     receive1(go)
+  }
+
+  /** Emits all but the last `n` elements of the input. */
+  def dropRight[I](n: Int): Process1[I, I] = {
+    def go(acc: Vector[I]): Process1[I, I] =
+      receive1(i => emit(acc.head) fby go(acc.tail :+ i))
+    if (n <= 0) id
+    else chunk(n).once.flatMap(go)
   }
 
   /**
@@ -168,7 +194,7 @@ object process1 {
    * element and terminate
    */
   def find[I](f: I => Boolean): Process1[I, I] =
-    receive1(i => if (f(i)) emit(i) else find(f))
+    filter(f).once
 
   /**
    * Halts with `true` as soon as a matching element is received.
@@ -201,26 +227,15 @@ object process1 {
   def fold[A, B](z: B)(f: (B, A) => B): Process1[A, B] =
     scan(z)(f).last
 
-  /**
-   * `Process1` form of `List.reduce`.
-   *
-   * Reduces the elements of this Process using the specified associative binary operator.
-   * {{{
-   * Process(1,2,3,4) |> reduce(_ + _) == Process(10)
-   * Process(1) |> reduce(_ + _) == Process(1)
-   * Process() |> reduce(_ + _) == Process()
-   * }}}
-   */
+  /** Alias for `[[reduce]](f)`. */
   def fold1[A](f: (A, A) => A): Process1[A, A] =
     reduce(f)
 
-  /**
-   * Like `fold1` only uses `f` to map `A` to `B` and uses Monoid `M` for associative operation
-   */
+  /** Alias for `[[reduceMap]](f)(M)`. */
   def fold1Map[A, B](f: A => B)(implicit M: Monoid[B]): Process1[A, B] =
     reduceMap(f)(M)
 
-  /** Like `fold1` but uses Monoid `M` for associative operation. */
+  /** Alias for `[[reduceSemigroup]](M)`. */
   def fold1Monoid[A](implicit M: Monoid[A]): Process1[A, A] =
     reduceSemigroup(M)
 
@@ -236,7 +251,7 @@ object process1 {
   def foldMonoid[A](implicit M: Monoid[A]): Process1[A, A] =
     fold(M.zero)(M.append(_, _))
 
-  /** Alias for `reduceSemigroup`. */
+  /** Alias for `[[reduceSemigroup]](M)`. */
   def foldSemigroup[A](implicit M: Semigroup[A]): Process1[A, A] =
     reduceSemigroup(M)
 
@@ -369,20 +384,20 @@ object process1 {
   def reduce[A](f: (A, A) => A): Process1[A, A] =
     scan1(f).last
 
-  /** Like `reduce` but uses Monoid `M` for associative operation. */
-  def reduceMonoid[A](implicit M: Monoid[A]): Process1[A, A] =
-    reduceSemigroup(M)
-
-  /** Like `reduce` but uses Semigroup `M` for associative operation. */
-  def reduceSemigroup[A](implicit M: Semigroup[A]): Process1[A, A] =
-    reduce(M.append(_, _))
-
   /**
    * Like `reduce` only uses `f` to map `A` to `B` and uses Semigroup `M` for
    * associative operation.
    */
   def reduceMap[A, B](f: A => B)(implicit M: Semigroup[B]): Process1[A, B] =
     lift(f).reduceSemigroup(M)
+
+  /** Alias for `[[reduceSemigroup]](M)`. */
+  def reduceMonoid[A](implicit M: Monoid[A]): Process1[A, A] =
+    reduceSemigroup(M)
+
+  /** Like `reduce` but uses Semigroup `M` for associative operation. */
+  def reduceSemigroup[A](implicit M: Semigroup[A]): Process1[A, A] =
+    reduce(M.append(_, _))
 
   /**
    * Repartitions the input with the function `p`. On each step `p` is applied
@@ -441,18 +456,6 @@ object process1 {
     emit(z) fby receive1(a => scan(f(z, a))(f))
 
   /**
-   * Like `scan` but uses Monoid for associative operation
-   */
-  def scanMonoid[A](implicit M: Monoid[A]): Process1[A, A] =
-    scan(M.zero)(M.append(_, _))
-
-  /**
-   * Like `scan` only uses `f` to map `A` to `B` and uses Monoid `M` for associative operation
-   */
-  def scanMap[A, B](f: A => B)(implicit M: Monoid[B]): Process1[A, B] =
-    lift(f).scanMonoid(M)
-
-  /**
    * Similar to `scan`, but unlike it it won't emit the `z` even when there is no input of `A`.
    * {{{
    * Process(1,2,3,4) |> scan1(_ + _) == Process(1,3,6,10)
@@ -463,20 +466,32 @@ object process1 {
   def scan1[A](f: (A, A) => A): Process1[A, A] =
     receive1(a => scan(a)(f))
 
-  /** Like `scan1` but uses Monoid `M` for associative operation. */
-  def scan1Monoid[A](implicit M: Monoid[A]): Process1[A, A] =
-    scanSemigroup(M)
-
-  /** Like `scan1` but uses Semigroup `M` for associative operation. */
-  def scanSemigroup[A](implicit M: Semigroup[A]): Process1[A, A] =
-    scan1(M.append(_, _))
-
   /**
    * Like `scan1` only uses `f` to map `A` to `B` and uses Semigroup `M` for
    * associative operation.
    */
   def scan1Map[A, B](f: A => B)(implicit M: Semigroup[B]): Process1[A, B] =
     lift(f).scanSemigroup(M)
+
+  /** Alias for `[[scanSemigroup]](M)`. */
+  def scan1Monoid[A](implicit M: Monoid[A]): Process1[A, A] =
+    scanSemigroup(M)
+
+  /**
+   * Like `scan` only uses `f` to map `A` to `B` and uses Monoid `M` for associative operation
+   */
+  def scanMap[A, B](f: A => B)(implicit M: Monoid[B]): Process1[A, B] =
+    lift(f).scanMonoid(M)
+
+  /**
+   * Like `scan` but uses Monoid for associative operation
+   */
+  def scanMonoid[A](implicit M: Monoid[A]): Process1[A, A] =
+    scan(M.zero)(M.append(_, _))
+
+  /** Like `scan1` but uses Semigroup `M` for associative operation. */
+  def scanSemigroup[A](implicit M: Semigroup[A]): Process1[A, A] =
+    scan1(M.append(_, _))
 
   /**
    * Emit the given values, then echo the rest of the input.
@@ -555,6 +570,14 @@ object process1 {
     if (n <= 0) halt
     else await1[I] fby take(n - 1)
 
+  /** Emits the last `n` elements of the input. */
+  def takeRight[I](n: Int): Process1[I, I] = {
+    def go(acc: Vector[I]): Process1[I, I] =
+      receive1Or[I, I](emitAll(acc))(i => go(acc.tail :+ i))
+    if (n <= 0) halt
+    else chunk(n).once.flatMap(go)
+  }
+
   /** Passes through elements of the input as long as the predicate is true, then halts. */
   def takeWhile[I](f: I => Boolean): Process1[I, I] =
     receive1 (i => if (f(i)) emit(i) fby takeWhile(f) else halt)
@@ -572,6 +595,7 @@ object process1 {
    *
    * @throws IllegalArgumentException if `n` <= 0
    */
+  @deprecated("window is deprecated in favor of sliding. It will be removed in the next release.", "0.6")
   def window[I](n: Int): Process1[I, Vector[I]] = {
     require(n > 0, "window size must be > 0, was: " + n)
     def go(acc: Vector[I], c: Int): Process1[I, Vector[I]] =
@@ -603,8 +627,11 @@ object process1 {
    * Zips every element with its next element wrapped into `Some`.
    * The last element is zipped with `None`.
    */
-  def zipWithNext[I]: Process1[I,(I,Option[I])] =
-    drainLeading(window(2).map(w => (w(0), w.lift(1))))
+  def zipWithNext[I]: Process1[I,(I,Option[I])] = {
+    def go(prev: I): Process1[I,(I,Option[I])] =
+      receive1Or[I,(I,Option[I])](emit((prev, None)))(i => emit((prev, Some(i))) fby go(i))
+    receive1(go)
+  }
 
   /**
    * Zips every element with its previous and next elements wrapped into `Some`.
@@ -678,6 +705,14 @@ private[stream] trait Process1Ops[+F[_],+O] {
   def collectFirst[O2](pf: PartialFunction[O,O2]): Process[F,O2] =
     this |> process1.collectFirst(pf)
 
+  /** Alias for `this |> [[process1.distinctConsecutive]]`. */
+  def distinctConsecutive[O2 >: O](implicit O2: Equal[O2]): Process[F,O2] =
+    this |> process1.distinctConsecutive(O2)
+
+  /** Alias for `this |> [[process1.distinctConsecutiveBy]](f)`. */
+  def distinctConsecutiveBy[B: Equal](f: O => B): Process[F,O] =
+    this |> process1.distinctConsecutiveBy(f)
+
   /** Alias for `this |> [[process1.drop]](n)`. */
   def drop(n: Int): Process[F,O] =
     this |> process1.drop(n)
@@ -689,6 +724,10 @@ private[stream] trait Process1Ops[+F[_],+O] {
   /** Alias for `this |> [[process1.dropLastIf]](p)`. */
   def dropLastIf(p: O => Boolean): Process[F,O] =
     this |> process1.dropLastIf(p)
+
+  /** Alias for `this |> [[process1.dropRight]](n)`. */
+  def dropRight(n: Int): Process[F,O] =
+    this |> process1.dropRight(n)
 
   /** Alias for `this |> [[process1.dropWhile]](f)`. */
   def dropWhile(f: O => Boolean): Process[F,O] =
@@ -774,9 +813,9 @@ private[stream] trait Process1Ops[+F[_],+O] {
   def minimumOf[B: Order](f: O => B): Process[F,B] =
     this |> process1.minimumOf(f)
 
-  /** Alias for `this |> [[process1.take]](1)`. */
+  /** Alias for `this |> [[Process.await1]]`. */
   def once: Process[F,O] =
-    this |> process1.take(1)
+    this |> Process.await1
 
   /** Alias for `this |> [[process1.prefixSums]]` */
   def prefixSums[O2 >: O](implicit N: Numeric[O2]): Process[F,O2] =
@@ -862,6 +901,10 @@ private[stream] trait Process1Ops[+F[_],+O] {
   def take(n: Int): Process[F,O] =
     this |> process1.take(n)
 
+  /** Alias for `this |> [[process1.takeRight]](n)`. */
+  def takeRight(n: Int): Process[F,O] =
+    this |> process1.takeRight(n)
+
   /** Alias for `this |> [[process1.takeThrough]](f)`. */
   def takeThrough(f: O => Boolean): Process[F,O] =
     this |> process1.takeThrough(f)
@@ -875,6 +918,7 @@ private[stream] trait Process1Ops[+F[_],+O] {
     this |> process1.terminated
 
   /** Alias for `this |> [[process1.window]](n)`. */
+  @deprecated("window is deprecated in favor of sliding. It will be removed in the next release.", "0.6")
   def window(n: Int): Process[F,Vector[O]] =
     this |> process1.window(n)
 
