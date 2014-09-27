@@ -69,12 +69,11 @@ object os {
     spawn(SubprocessArgs(command))
 
   def spawn(args: SubprocessArgs): Process[Task, RawSubprocessCtrl] = {
-    val state = Task.delay(async.signal[SubprocessState])
-      .flatMap(s => s.set(NotRunning).flatMap(_ => Task(s)))
-      /*.map { s =>
-        s.set(NotRunning).run
-        s
-      }*/
+    val state = Task.delay {
+      val s = async.signal[SubprocessState]
+      s.set(NotRunning).run
+      s
+    }
     io.resource(state)(_.close)(mkSubprocessCtrl(args, _)).once
   }
 

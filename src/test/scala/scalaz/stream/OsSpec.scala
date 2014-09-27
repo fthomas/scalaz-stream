@@ -143,6 +143,12 @@ object OsSpec extends Properties("OsSpec") {
     p.take(50).runLog.run.toList == List.range(1, 51)
   }
 
+  property("sum seq") = secure {
+    val seq = spawnCmd("seq", "10000").flatMap(_.proc).flatMap(_.stdOut.repeat)
+      .pipe(linesIn).map(_.toInt)
+    seq.take(100).sum.runLog.run.toList == List(5050)
+  }
+
   property("yes terminates") = secure {
     spawnCmd("yes").flatMap(_.proc).run.run
     true
