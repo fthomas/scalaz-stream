@@ -85,16 +85,15 @@ object os {
       val acquire =
         mkJavaProcess(args).map { jp =>
           state.set(Running).run
-          val destroyAction = destroyJavaProcess(jp) >> state.set(Destroyed)
+          val destroyAction = destroyJavaProcess(jp).flatMap(state.set)
           destroy.set(destroyAction).run
           jp
         }
 
-      def release(jp: JavaProcess) =
-        closeJavaProcess(jp).map { status =>
-          state.set(Exited(status)).run
-          destroy.close.run
-        }
+      def release(jp: JavaProcess): Task[Unit] =
+        closeJavaProcess(jp)
+          .flatMap(state.set)
+          .flatMap(_ => destroy.close)
 
       SubprocessCtrl(
         proc = io.resource(acquire)(release)(mkSubprocess).once,
@@ -152,9 +151,14 @@ object os {
       jp.getErrorStream.close()
     }
 
-  private def closeJavaProcess(jp: JavaProcess): Task[Int] =
-    closeStreams(jp) >> Task.delay(jp.waitFor())
+  private def closeJavaProcess(jp: JavaProcess): Task[SubprocessState] =
+    closeStreams(jp) >> Task.delay {
+      Exited(jp.waitFor())
+    }
 
-  private def destroyJavaProcess(jp: JavaProcess): Task[Unit] =
-    closeStreams(jp) >> Task.delay(jp.destroy())
+  private def destroyJavaProcess(jp: JavaProcess): Task[SubprocessState] =
+    closeStreams(jp) >> Task.delay {
+      jp.destroy()
+      Destroyed
+    }
 }
