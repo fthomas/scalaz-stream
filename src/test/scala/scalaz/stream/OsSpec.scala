@@ -196,4 +196,22 @@ object OsSpec extends Properties("OsSpec") {
     p.runLog.run.toList == expected &&
       p.runLog.run.toList == expected
   }
+
+  property("merge 2 seq") = secure {
+    def seq(i: Int): Process[Task, Int] =
+      spawnCmd("seq", s"$i", "2", "100").flatMap(_.proc).flatMap(_.stdOut.repeat.once)
+        .pipe(linesIn).map(_.toInt)
+
+    val merged = seq(1).merge(seq(2))
+    merged.runLog.run.toList.sorted == List.range(1, 101)
+  }
+
+  property("merge 3 seq") = secure {
+    def seq(i: Int): Process[Task, Int] =
+      spawnCmd("seq", s"$i", "3", "100").flatMap(_.proc).flatMap(_.stdOut.repeat.once)
+        .pipe(linesIn).map(_.toInt)
+
+    val merged = seq(1).merge(seq(2)).merge(seq(3))
+    merged.runLog.run.toList.sorted == List.range(1, 101)
+  }
 }

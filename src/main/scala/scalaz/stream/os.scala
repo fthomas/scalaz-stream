@@ -80,25 +80,26 @@ object os {
   private def mkSubprocessCtrl(args: SubprocessArgs,
       state: Signal[SubprocessState]): Task[RawSubprocessCtrl] =
     Task.delay {
-      val destroy = async.signal[Task[Unit]]
+      val destroySignal = async.signal[Task[Unit]]
+
+      def release(jp: JavaProcess) =
+        closeJavaProcess(jp).flatMap(state.set)
+
+      def destroy(jp: JavaProcess) =
+        destroyJavaProcess(jp).flatMap(state.set)
 
       val acquire =
         mkJavaProcess(args).map { jp =>
           state.set(Running).run
-          val destroyAction = destroyJavaProcess(jp).flatMap(state.set)
-          destroy.set(destroyAction).run
+          destroySignal.set(destroy(jp)).run
           jp
         }
 
-      def release(jp: JavaProcess): Task[Unit] =
-        closeJavaProcess(jp)
-          .flatMap(state.set)
-          .flatMap(_ => destroy.close)
-
       SubprocessCtrl(
-        proc = io.resource(acquire)(release)(mkSubprocess).once,
+        proc = io.resource(acquire)(release)(mkSubprocess).once
+          .onComplete(eval_(destroySignal.close)),
         state = state.continuous,
-        destroy = destroy.discrete.flatMap(eval).once)
+        destroy = destroySignal.discrete.flatMap(eval).once)
     }
 
   private def mkJavaProcess(args: SubprocessArgs): Task[JavaProcess] =
