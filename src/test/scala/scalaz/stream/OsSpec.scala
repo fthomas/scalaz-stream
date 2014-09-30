@@ -199,8 +199,8 @@ object OsSpec extends Properties("OsSpec") {
 
   property("merge 2 seq") = secure {
     def seq(i: Int): Process[Task, Int] =
-      spawnCmd("seq", s"$i", "2", "100").flatMap(_.proc).flatMap(_.stdOut.repeat.once)
-        .pipe(linesIn).map(_.toInt)
+      spawnCmd("seq", s"$i", "2", "200").flatMap(_.proc).flatMap(_.stdOut.repeat)
+        .pipe(linesIn).map(_.toInt).take(50)
 
     val merged = seq(1).merge(seq(2))
     merged.runLog.run.toList.sorted == List.range(1, 101)
@@ -208,10 +208,19 @@ object OsSpec extends Properties("OsSpec") {
 
   property("merge 3 seq") = secure {
     def seq(i: Int): Process[Task, Int] =
-      spawnCmd("seq", s"$i", "3", "100").flatMap(_.proc).flatMap(_.stdOut.repeat.once)
-        .pipe(linesIn).map(_.toInt)
+      spawnCmd("seq", s"$i", "3", "200").flatMap(_.proc).flatMap(_.stdOut.repeat)
+        .pipe(linesIn).map(_.toInt).take(33)
 
     val merged = seq(1).merge(seq(2)).merge(seq(3))
-    merged.runLog.run.toList.sorted == List.range(1, 101)
+    merged.runLog.run.toList.sorted == List.range(1, 100)
+  }
+
+  property("interleave 4 seq") = secure {
+    def seq(i: Int): Process[Task, Int] =
+      spawnCmd("seq", s"$i", "4", "200").flatMap(_.proc).flatMap(_.stdOut.repeat)
+        .pipe(linesIn).map(_.toInt).take(25)
+
+    val interleaved = seq(1).interleave(seq(2)).interleave(seq(3).interleave(seq(4)))
+    interleaved.runLog.run.toList.sorted == List.range(1, 101)
   }
 }
