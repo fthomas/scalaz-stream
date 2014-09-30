@@ -71,7 +71,7 @@ object os {
   def spawn(args: SubprocessArgs): Process[Task, RawSubprocessCtrl] = {
     val state = Task.delay {
       val s = async.signal[SubprocessState]
-      s.set(NotRunning).run
+      s.set(NotRunning).runAsync(_ => ())
       s
     }
     io.resource(state)(_.close)(mkSubprocessCtrl(args, _)).once
@@ -90,8 +90,8 @@ object os {
 
       val acquire =
         mkJavaProcess(args).map { jp =>
-          state.set(Running).run
-          destroySignal.set(destroy(jp)).run
+          state.set(Running).runAsync(_ => ())
+          destroySignal.set(destroy(jp)).runAsync(_ => ())
           jp
         }
 

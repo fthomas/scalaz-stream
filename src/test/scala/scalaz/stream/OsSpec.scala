@@ -95,6 +95,7 @@ object OsSpec extends Properties("OsSpec") {
     p.runLog.run.toList == List("5")
   }
 
+  // failed in https://travis-ci.org/fthomas/scalaz-stream/jobs/36699851
   property("bc syntax error") = secure {
     val calc = Process("2 +\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
@@ -213,6 +214,24 @@ object OsSpec extends Properties("OsSpec") {
 
     val merged = seq(1).merge(seq(2)).merge(seq(3))
     merged.runLog.run.toList.sorted == List.range(1, 100)
+  }
+
+  property("merge 4 seq") = secure {
+    def seq(i: Int): Process[Task, Int] =
+      spawnCmd("seq", s"$i", "4", "200").flatMap(_.proc).flatMap(_.stdOut.repeat)
+        .pipe(linesIn).map(_.toInt).take(25)
+
+    val merged = seq(1).merge(seq(2)).merge(seq(3).merge(seq(4)))
+    merged.runLog.run.toList.sorted == List.range(1, 101)
+  }
+
+  property("merge 5 seq") = secure {
+    def seq(i: Int): Process[Task, Int] =
+      spawnCmd("seq", s"$i", "5", "200").flatMap(_.proc).flatMap(_.stdOut.repeat)
+        .pipe(linesIn).map(_.toInt).take(20)
+
+    val merged = seq(1).merge(seq(2)).merge(seq(3).merge(seq(4))).merge(seq(5))
+    merged.runLog.run.toList.sorted == List.range(1, 101)
   }
 
   property("interleave 4 seq") = secure {
