@@ -54,6 +54,12 @@ object OsSpec extends Properties("OsSpec") {
     p.runLog.run.toList == List("Hello World")
   }
 
+  property("echo once delayed") = secure {
+    val p = spawnCmd("bash", "-c", "sleep 0.5; echo World")
+      .flatMap(_.proc).flatMap(_.stdOut.repeat.once).pipe(linesIn)
+    p.runLog.run.toList == List("World")
+  }
+
   // failed in https://travis-ci.org/fthomas/scalaz-stream/jobs/36699854
   property("echo twice") = secure {
     val p = spawnCmd("sh", "-c", "echo Hello; echo World")
