@@ -154,7 +154,8 @@ object os {
 
   private def closeJavaProcess(jp: JavaProcess): Task[SubprocessState] =
     closeStreams(jp) >> Task.delay {
-      Exited(jp.waitFor())
+      val status = jp.waitFor()
+      Exited(status)
     }
 
   private def destroyJavaProcess(jp: JavaProcess): Task[SubprocessState] =
