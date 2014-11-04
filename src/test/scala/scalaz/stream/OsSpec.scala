@@ -69,7 +69,7 @@ object OsSpec extends Properties("OsSpec") {
   property("echo twice") = secure {
     val p = spawnCmd("sh", "-c", "echo Hello; echo World")
       .flatMap(_.proc).flatMap(_.stdOut.repeat.once).pipe(linesIn)
-    runLogList(p) ?= List("Hello", "World")
+    runLogList(p).take(1) ?= List("Hello")
   }
 
   property("echo twice delayed") = secure {
