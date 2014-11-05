@@ -60,7 +60,8 @@ object os {
     command: Seq[String],
     environment: Option[Map[String, String]] = None,
     directory: Option[File] = None,
-    mergeOutAndErr: Boolean = false)
+    mergeOutAndErr: Boolean = false,
+    readBufferSize: Int = 8 * 1024)
 
   type RawSubprocess = Subprocess[ByteVector, ByteVector]
   type RawSubprocessCtrl = SubprocessCtrl[ByteVector, ByteVector]
@@ -69,7 +70,8 @@ object os {
     shell(SubprocessArgs(command))
 
   def shell(args: SubprocessArgs): Process[Task, RawSubprocess] =
-    io.resource(mkJavaProcess(args))(closeJavaProcess_)(mkSubprocess).once
+    io.resource(mkJavaProcess(args))(closeJavaProcess_)(
+      mkSubprocess(_, args.readBufferSize)).once
 
   def spawnCmd(command: String*): Process[Task, RawSubprocessCtrl] =
     spawn(SubprocessArgs(command))
@@ -98,7 +100,7 @@ object os {
         }
 
       SubprocessCtrl(
-        proc = io.resource(acquire)(release)(mkSubprocess).once
+        proc = io.resource(acquire)(release)(mkSubprocess(_, args.readBufferSize)).once
           .onComplete(eval_(destroySignal.close)),
         state = state.continuous,
         destroy = destroySignal.discrete.flatMap(eval).once)
@@ -117,20 +119,18 @@ object os {
       pb.start()
     }
 
-  private def mkSubprocess(jp: JavaProcess): Task[RawSubprocess] =
+  private def mkSubprocess(jp: JavaProcess, readBufferSize: Int): Task[RawSubprocess] =
     Task.delay {
       Subprocess(
         stdIn = mkSink(jp.getOutputStream),
-        stdOut = mkSource(jp.getInputStream),
-        stdErr = mkSource(jp.getErrorStream))
+        stdOut = mkSource(jp.getInputStream, readBufferSize),
+        stdErr = mkSource(jp.getErrorStream, readBufferSize))
     }
 
-  private def mkSource(is: InputStream): Process[Task, ByteVector] = {
-    val maxSize = 8 * 1024
-    val buffer = Array.ofDim[Byte](maxSize)
-
+  private def mkSource(is: InputStream, bufferSize: Int): Process[Task, ByteVector] = {
+    val buffer = Array.ofDim[Byte](bufferSize)
     val readChunk = Task.delay {
-      val size = math.min(is.available, maxSize)
+      val size = math.min(is.available, bufferSize)
       if (size > 0) {
         is.read(buffer, 0, size)
         ByteVector.view(buffer.take(size))
