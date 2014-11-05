@@ -27,7 +27,7 @@ Alternative names:
 */
 
 object os {
-  final case class Subprocess[R, W](
+  case class Subprocess[R, W](
       stdIn: Sink[Task, W],
       stdOut: Process[Task, R],
       stdErr: Process[Task, R]) {
@@ -51,12 +51,12 @@ object os {
   case object Destroyed extends SubprocessState
   case class Exited(status: Int) extends SubprocessState
 
-  final case class SubprocessCtrl[R, W](
+  case class SubprocessCtrl[R, W](
     proc: Process[Task, Subprocess[R, W]],
     state: Process[Task, SubprocessState],
     destroy: Process[Task, Unit])
 
-  final case class SubprocessArgs(
+  case class SubprocessArgs(
     command: Seq[String],
     environment: Option[Map[String, String]] = None,
     directory: Option[File] = None,
