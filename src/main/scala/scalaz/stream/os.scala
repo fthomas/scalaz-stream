@@ -69,11 +69,7 @@ object os {
     spawn(SubprocessArgs(command))
 
   def spawn(args: SubprocessArgs): Process[Task, RawSubprocessCtrl] = {
-    val state = Task.delay {
-      val s = async.signal[SubprocessState]
-      s.set(NotRunning).runAsync(_ => ())
-      s
-    }
+    val state = Task.delay(async.signalOf[SubprocessState](NotRunning))
     io.resource(state)(_.close)(mkSubprocessCtrl(args, _)).once
   }
 
@@ -115,7 +111,7 @@ object os {
       pb.start()
     }
 
-  private def mkSubprocess(jp: JavaProcess): Task[Subprocess[ByteVector, ByteVector]] =
+  private def mkSubprocess(jp: JavaProcess): Task[RawSubprocess] =
     Task.delay {
       Subprocess(
         stdIn = mkSink(jp.getOutputStream),

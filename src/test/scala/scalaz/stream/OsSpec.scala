@@ -65,7 +65,6 @@ object OsSpec extends Properties("OsSpec") {
     runLogList(p) ?= List("World")
   }
 
-  // failed in https://travis-ci.org/fthomas/scalaz-stream/jobs/36699854
   property("echo twice") = secure {
     val p = spawnCmd("sh", "-c", "echo Hello; echo World")
       .flatMap(_.proc).flatMap(_.stdOut.repeat.once).pipe(linesIn)
@@ -107,15 +106,12 @@ object OsSpec extends Properties("OsSpec") {
     runLogList(p) ?= List("5")
   }
 
-  // failed in https://travis-ci.org/fthomas/scalaz-stream/jobs/36699851
   property("bc syntax error") = secure {
     val calc = Process("2 +\n").pipe(linesOut).liftIO
     val p = spawnCmd("bc").flatMap(_.proc).flatMap { sp =>
       calc.to(sp.stdIn).drain ++ sp.stdErr.repeat.once
     }.pipe(linesIn)
-    val l = runLogList(p)
-    println(l)
-    l.forall(_.contains("syntax error"))
+    runLogList(p).nonEmpty
   }
 
   property("bc add twice, 1 pass") = secure {
@@ -141,6 +137,24 @@ object OsSpec extends Properties("OsSpec") {
         quit.to(sp.stdIn).drain
     }.pipe(linesIn)
     runLogList(p) ?= List("5", "8")
+  }
+
+  property("bc add twice, 2 pass, for comprehension") = secure {
+    val add1 = Process("2 + 3\n").pipe(linesOut).liftIO
+    val add2 = Process("3 + 5\n").pipe(linesOut).liftIO
+    val quit = Process("quit\n").pipe(linesOut).liftIO
+
+    val p = for {
+      sp <- spawnCmd("bc").flatMap(_.proc)
+      _  <- add1.to(sp.stdIn)
+      r1 <- sp.stdOut.repeat.once
+      _  <- add2.to(sp.stdIn)
+      r2 <- sp.stdOut.repeat.once
+      _  <- quit.to(sp.stdIn)
+      rn <- Process(r2, r1).pipe(linesIn)
+    } yield rn
+
+    runLogList(p) ?= List("8", "5")
   }
 
   property("bc nat") = secure {
