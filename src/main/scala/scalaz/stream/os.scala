@@ -65,6 +65,12 @@ object os {
   type RawSubprocess = Subprocess[ByteVector, ByteVector]
   type RawSubprocessCtrl = SubprocessCtrl[ByteVector, ByteVector]
 
+  def shellCmd(command: String*): Process[Task, RawSubprocess] =
+    shell(SubprocessArgs(command))
+
+  def shell(args: SubprocessArgs): Process[Task, RawSubprocess] =
+    io.resource(mkJavaProcess(args))(closeJavaProcess_)(mkSubprocess).once
+
   def spawnCmd(command: String*): Process[Task, RawSubprocessCtrl] =
     spawn(SubprocessArgs(command))
 
@@ -153,6 +159,9 @@ object os {
       val status = jp.waitFor()
       Exited(status)
     }
+
+  private def closeJavaProcess_(jp: JavaProcess): Task[Unit] =
+    closeJavaProcess(jp).as(())
 
   private def destroyJavaProcess(jp: JavaProcess): Task[SubprocessState] =
     closeStreams(jp) >> Task.delay {
