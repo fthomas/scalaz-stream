@@ -776,22 +776,6 @@ object Process extends ProcessInstances {
   //
   //////////////////////////////////////////////////////////////////////////////////////
 
-  /** `Writer` based version of `await1`. */
-  def await1W[A]: Writer1[Nothing, A, A] =
-    liftW(Process.await1[A])
-
-  /** `Writer` based version of `awaitL`. */
-  def awaitLW[I]: TeeW[Nothing, I, Any, I] =
-    liftW(Process.awaitL[I])
-
-  /** `Writer` based version of `awaitR`. */
-  def awaitRW[I2]: TeeW[Nothing, Any, I2, I2] =
-    liftW(Process.awaitR[I2])
-
-  /** `Writer` based version of `awaitBoth`. */
-  def awaitBothW[I, I2]: WyeW[Nothing, I, I2, ReceiveY[I, I2]] =
-    liftW(Process.awaitBoth[I, I2])
-
   /**
    * Discrete process that every `d` emits elapsed duration
    * since the start time of stream consumption.
@@ -857,17 +841,9 @@ object Process extends ProcessInstances {
     repeatEval { Task.delay { Duration(System.nanoTime - t0, NANOSECONDS) }}
   }
 
-  /** A `Writer` which emits one value to the output. */
-  def emitO[O](o: O): Process0[Nothing \/ O] =
-    Process.emit(right(o))
-
   @deprecated("Use emitAll(start until stopExclusive) instead. Produces the sequence in one chunk unlike `Process.range` which produces a lazy sequence.", "0.6.0")
   def emitRange(start: Int, stopExclusive: Int): Process0[Int] =
     emitAll(start until stopExclusive)
-
-  /** A `Writer` which writes the given value. */
-  def emitW[W](s: W): Process0[W \/ Nothing] =
-    Process.emit(left(s))
 
   /**
    * A 'continuous' stream which is true after `d, 2d, 3d...` elapsed duration,
@@ -917,17 +893,6 @@ object Process extends ProcessInstances {
    */
   def iterateEval[F[_], A](start: A)(f: A => F[A]): Process[F, A] =
     emit(start) ++ await(f(start))(iterateEval(_)(f))
-
-  /** Promote a `Process` to a `Writer` that writes nothing. */
-  def liftW[F[_], A](p: Process[F, A]): Writer[F, Nothing, A] =
-    p.map(right)
-
-  /**
-   * Promote a `Process` to a `Writer` that writes and outputs
-   * all values of `p`.
-   */
-  def logged[F[_], A](p: Process[F, A]): Writer[F, A, A] =
-    p.flatMap(a => emitAll(Vector(left(a), right(a))))
 
   /** Lazily produce the range `[start, stopExclusive)`. If you want to produce the sequence in one chunk, instead of lazily, use `emitAll(start until stopExclusive)`.  */
   def range(start: Int, stopExclusive: Int, by: Int = 1): Process0[Int] =
@@ -985,10 +950,6 @@ object Process extends ProcessInstances {
     val l = new AtomicLong(initial)
     repeatEval { Task.delay { l.getAndIncrement }}
   }
-
-  /** A `Writer` which writes the given value; alias for `emitW`. */
-  def tell[S](s: S): Process0[S \/ Nothing] =
-    emitW(s)
 
   /**
    * Convert a `Process` to a `Task` which can be run repeatedly to generate
@@ -1397,82 +1358,8 @@ object Process extends ProcessInstances {
       self.contramapR_(f).asInstanceOf[Tee[I,I3,O]]
   }
 
-
-  /**
-   * Infix syntax for working with `Writer[F,W,O]`. We call
-   * the `W` parameter the 'write' side of the `Writer` and
-   * `O` the 'output' side. Many method in this class end
-   * with either `W` or `O`, depending on what side they
-   * operate on.
-   */
-  implicit class WriterSyntax[F[_],W,O](self: Writer[F,W,O]) {
-
-    /** Transform the write side of this `Writer`. */
-    def flatMapW[F2[x]>:F[x],W2,O2>:O](f: W => Writer[F2,W2,O2]): Writer[F2,W2,O2] =
-      self.flatMap(_.fold(f, emitO))
-
-    /** Remove the write side of this `Writer`. */
-    def stripW: Process[F,O] =
-      self.flatMap(_.fold(_ => halt, emit))
-
-    /** Map over the write side of this `Writer`. */
-    def mapW[W2](f: W => W2): Writer[F,W2,O] =
-      self.map(_.leftMap(f))
-
-    /** pipe Write side of this `Writer`  */
-    def pipeW[B](f: Process1[W,B]): Writer[F,B,O] =
-      self.pipe(process1.liftL(f))
-
-    /**
-     * Observe the write side of this `Writer` using the
-     * given `Sink`, keeping it available for subsequent
-     * processing. Also see `drainW`.
-     */
-    def observeW(snk: Sink[F,W]): Writer[F,W,O] =
-      self.zipWith(snk)((a,f) =>
-        a.fold(
-          (s: W) => eval_ { f(s) } ++ Process.emitW(s),
-          (a: O) => Process.emitO(a)
-        )
-      ).flatMap(identity)
-
-    /**
-     * Observe the write side of this `Writer` using the
-     * given `Sink`, then discard it. Also see `observeW`.
-     */
-    def drainW(snk: Sink[F,W]): Process[F,O] =
-      observeW(snk).stripW
-
-
-    /**
-     * Observe the output side of this `Writer` using the
-     * given `Sink`, keeping it available for subsequent
-     * processing. Also see `drainO`.
-     */
-    def observeO(snk: Sink[F,O]): Writer[F,W,O] =
-      self.map(_.swap).observeW(snk).map(_.swap)
-
-    /**
-     * Observe the output side of this Writer` using the
-     * given `Sink`, then discard it. Also see `observeW`.
-     */
-    def drainO(snk: Sink[F,O]): Process[F,W] =
-      observeO(snk).stripO
-
-    /** Map over the output side of this `Writer`. */
-    def mapO[B](f: O => B): Writer[F,W,B] =
-      self.map(_.map(f))
-
-    def flatMapO[F2[x]>:F[x],W2>:W,B](f: O => Writer[F2,W2,B]): Writer[F2,W2,B] =
-      self.flatMap(_.fold(emitW, f))
-
-    def stripO: Process[F,W] =
-      self.flatMap(_.fold(emit, _ => halt))
-
-    def pipeO[B](f: Process1[O,B]): Writer[F,W,B] =
-      self.pipe(process1.liftR(f))
-  }
-
+  implicit def toWriterOps[F[_], W, O](writer: Writer[F, W, O]): WriterOps[F, W, O] =
+    new WriterOps(writer)
 
   /**
    * This class provides infix syntax specific to `Wye`. We put these here

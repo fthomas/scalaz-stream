@@ -337,7 +337,7 @@ object process1 {
             case Halt(rsn) => out fby Halt(rsn)
             case other => out fby go(other)
           }
-        case \/-(c) => emitO(c) fby go(curr)
+        case \/-(c) => Writer.emitO(c) fby go(curr)
       }
     }
     go(p)

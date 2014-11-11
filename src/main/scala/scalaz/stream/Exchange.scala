@@ -162,7 +162,7 @@ final case class Exchange[I, W](read: Process[Task, I], write: Sink[Task, W]) {
               case (out,hlt@Halt(rsn)) => emitAll(out) fby hlt
               case (out,next) => emitAll(out) fby go(next)
             }
-          case ReceiveR(w) => tell(w) fby go(cur)
+          case ReceiveR(w) => Writer.tell(w) fby go(cur)
           case HaltL(rsn) => Halt(rsn)
           case HaltR(rsn) => go(cur)
         }

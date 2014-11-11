@@ -10,7 +10,7 @@ import scalaz.stream.Process.Env
 /**
  * Created by pach on 11/07/14.
  */
-package object stream {
+package object stream extends WriterTypes {
 
   type Process0[+O] = Process[Nothing,O]
 
@@ -48,27 +48,6 @@ package object stream {
 
 
 
-
-  /**
-   * A `Writer[F,W,O]` is a `Process[F, W \/ O]`. See
-   * `Process.WriterSyntax` for convenience functions
-   * for working with either the written values (the `W`)
-   * or the output values (the `O`).
-   *
-   * This is useful for logging or other situations where we
-   * want to emit some values 'on the side' while doing something
-   * else with the main output of a `Process`.
-   */
-  type Writer[+F[_],+W,+O] = Process[F, W \/ O]
-
-  /** A `Process1` that writes values of type `W`. */
-  type Writer1[+W,-I,+O] = Process1[I,W \/ O]
-
-  /** A `Tee` that writes values of type `W`. */
-  type TeeW[+W,-I,-I2,+O] = Tee[I,I2,W \/ O]
-
-  /** A `Wye` that writes values of type `W`. */
-  type WyeW[+W,-I,-I2,+O] = Wye[I,I2,W \/ O]
 
   /**
    * Scheduler used for timing processes.
