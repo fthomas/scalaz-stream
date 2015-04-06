@@ -94,6 +94,7 @@ object text {
     val repartitionProcess =
       if (maxLineLength > 0)
         repartition { (s: String) =>
+          println(s)
           val chunks = splitLines(s)
           if (chunks.forall(_.length <= maxLineLength)) chunks
           else throw LengthExceeded(maxLineLength, s)
