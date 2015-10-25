@@ -3,6 +3,8 @@ addSbtPlugin("com.typesafe.sbt" % "sbt-git" % "0.8.4")
 
 addSbtPlugin("com.github.tkawachi" % "sbt-doctest" % "0.3.3")
 
+addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.2.0")
+
 // release stuff
 addSbtPlugin("org.xerial.sbt" % "sbt-sonatype" % "0.5.0")
 
