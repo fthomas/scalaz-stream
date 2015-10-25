@@ -13,6 +13,6 @@ cache:
     - $HOME/.ivy2
     - $HOME/.sbt
 script:
-  - sbt ++$TRAVIS_SCALA_VERSION coverage test
+  - sbt ++$TRAVIS_SCALA_VERSION coverage "testOnly fs2.*"
 after_success:
   - bash <(curl -s https://codecov.io/bash)
